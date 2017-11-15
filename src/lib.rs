@@ -1,7 +1,10 @@
 #[macro_use]
 extern crate nom;
+#[macro_use]
+extern crate approx;
 
 use nom::*;
+use nom::digit;
 use nom::ErrorKind;
 use nom::IResult::*;
 use std::str;
@@ -11,9 +14,12 @@ use std::ops::RangeTo;
 use std::str::FromStr;
 use std::str::from_utf8;
 
+// parse a pdf file, per ISO 32000-2_2017(en)
+
 #[derive(Debug, PartialEq, Eq)]
 enum PdfVersion {
-    Known{major: u32, minor: u32}
+    Known { major: u32, minor: u32 },
+    Unknown
 }
 
 // while i figure out how to live this way better: fails are 0.
@@ -39,25 +45,24 @@ named!(pdf_line_ending_by_macro,
     )
 );
 
-pub fn pdf_line_ending<T>(input:T) -> nom::IResult<T, T> where
-    T: nom::Slice<Range<usize>>+nom::Slice<RangeFrom<usize>>+nom::Slice<RangeTo<usize>>,
-    T: nom::InputIter+nom::InputLength,
+pub fn pdf_line_ending<T>(input: T) -> nom::IResult<T, T> where
+    T: nom::Slice<Range<usize>> + nom::Slice<RangeFrom<usize>> + nom::Slice<RangeTo<usize>>,
+    T: nom::InputIter + nom::InputLength,
     T: nom::Compare<&'static str> {
-
     // this here _ => is amounting to the complete! behavior above, it seems.
     match input.compare("\r\n") {
         CompareResult::Ok => Done(input.slice(2..), input.slice(0..2)),
         _ => match input.compare("\r") {
-            CompareResult::Ok         => Done(input.slice(1..), input.slice(0..1)),
+            CompareResult::Ok => Done(input.slice(1..), input.slice(0..1)),
             _ => match input.compare("\n") {
-                CompareResult::Ok         => Done(input.slice(1..), input.slice(0..1)),
+                CompareResult::Ok => Done(input.slice(1..), input.slice(0..1)),
                 _ => Error(error_position!(ErrorKind::CrLf, input)),
             }
         }
     }
 }
 
-pub fn is_not_line_end_chars(chr:u8) -> bool {
+pub fn is_not_line_end_chars(chr: u8) -> bool {
     (chr != b'\n' && chr != b'\r')
 }
 
@@ -72,7 +77,7 @@ named!(pdf_comment<&[u8]>,
     )
 );
 
-named!(pdf_version,
+named!(pdf_version<&[u8],&[u8]>,
     alt!(
         tag!(b"1.0") |
         tag!(b"1.1") |
@@ -95,6 +100,8 @@ named!(pdf_magic<&[u8],PdfVersion>,
     )
 );
 
+// § 7.5.2
+
 named!(pdf_header<&[u8],PdfVersion>,
     do_parse!(
         ver: pdf_magic >>
@@ -107,6 +114,52 @@ named!(pdf_header<&[u8],PdfVersion>,
 
 named!(pdf_boolean<&[u8],bool>,
     map_res!(map_res!( alt!( tag!(b"true") | tag!(b"false")), str::from_utf8 ), FromStr::from_str)
+);
+
+// § 7.3.3
+
+named!(maybe_signed_integer<&[u8],(Option<&[u8]>, &[u8])>,
+    pair!(
+        opt!(alt!(tag_s!("+") | tag_s!("-"))),
+        nom::digit
+    )
+);
+named!(recognize_signed_integer<&[u8],&[u8]>,
+    recognize!(
+        maybe_signed_integer
+    )
+);
+named!(signed_integer<&[u8],i64>,
+    map_res!( map_res!( recognize_signed_integer, str::from_utf8 ), FromStr::from_str )
+);
+
+
+named!(maybe_signed_float_pp<&[u8],(Option<&[u8]>,&[u8],&[u8])>,
+    tuple!(
+        opt!(alt!(tag!(b"+") | tag!(b"-"))),
+        tag!(b"."),
+        digit
+    )
+);
+named!(maybe_signed_float_ap<&[u8],(Option<&[u8]>,&[u8],&[u8],Option<&[u8]>)>,
+    tuple!(
+        opt!(alt!(tag!(b"+") | tag!(b"-"))),
+        digit,
+        tag!(b"."),
+        opt!(nom::digit)
+    )
+);
+
+named!(recognize_signed_float<&[u8],&[u8]>,
+    recognize!(
+        alt!(
+            complete!( mabye_signed_float_ap ) |
+            complete!( maybe_signed_float_pp )
+        )
+    )
+);
+named!(signed_float<&[u8],f64>,
+    map_res!( map_res!( recognize_signed_float, str::from_utf8 ), FromStr::from_str )
 );
 
 #[cfg(test)]
@@ -123,23 +176,23 @@ mod tests {
 
     #[test]
     fn pdf_magic_test() {
-        assert_eq!(PdfVersion::Known{major: 1, minor: 0}, pdf_magic(b"%PDF-1.0\r\n").to_result().unwrap());
+        assert_eq!(PdfVersion::Known { major: 1, minor: 0 }, pdf_magic(b"%PDF-1.0\r\n").to_result().unwrap());
         assert_eq!(nom::Err::Position(nom::ErrorKind::Alt, &[51u8, 46u8, 48u8, 13u8][..]),
                    pdf_magic(b"%PDF-3.0\r").to_result().unwrap_err());
     }
 
     #[test]
     fn pdf_linendings_test() {
-        assert_eq!( b"\r".as_bytes(), pdf_line_ending(b"\rdd".as_bytes()).to_result().unwrap());
-        assert_eq!( b"\r\n".as_bytes(), pdf_line_ending(b"\r\ndd".as_bytes()).to_result().unwrap());
-        assert_eq!( b"\n".as_bytes(), pdf_line_ending(b"\ndd".as_bytes()).to_result().unwrap());
+        assert_eq!(b"\r".as_bytes(), pdf_line_ending(b"\rdd".as_bytes()).to_result().unwrap());
+        assert_eq!(b"\r\n".as_bytes(), pdf_line_ending(b"\r\ndd".as_bytes()).to_result().unwrap());
+        assert_eq!(b"\n".as_bytes(), pdf_line_ending(b"\ndd".as_bytes()).to_result().unwrap());
     }
 
     #[test]
     fn pdf_linendings_by_macro_test() {
-        assert_eq!( b"\r".as_bytes(), pdf_line_ending_by_macro(b"\rdd".as_bytes()).to_result().unwrap());
-        assert_eq!( b"\r\n".as_bytes(), pdf_line_ending_by_macro(b"\r\ndd".as_bytes()).to_result().unwrap());
-        assert_eq!( b"\n".as_bytes(), pdf_line_ending_by_macro(b"\ndd".as_bytes()).to_result().unwrap());
+        assert_eq!(b"\r".as_bytes(), pdf_line_ending_by_macro(b"\rdd".as_bytes()).to_result().unwrap());
+        assert_eq!(b"\r\n".as_bytes(), pdf_line_ending_by_macro(b"\r\ndd".as_bytes()).to_result().unwrap());
+        assert_eq!(b"\n".as_bytes(), pdf_line_ending_by_macro(b"\ndd".as_bytes()).to_result().unwrap());
     }
 
     #[test]
@@ -150,10 +203,23 @@ mod tests {
 
     #[test]
     fn pdf_header_test() {
-        assert_eq!(nom::IResult::Done(b" ".as_bytes(), PdfVersion::Known{major: 1, minor: 0}),
+        assert_eq!(nom::IResult::Done(b" ".as_bytes(), PdfVersion::Known { major: 1, minor: 0 }),
                    pdf_header(b"%PDF-1.0\r ".as_bytes()));
-        assert_eq!(nom::IResult::Done(b" ".as_bytes(), PdfVersion::Known{major: 2, minor: 0}),
+        assert_eq!(nom::IResult::Done(b" ".as_bytes(), PdfVersion::Known { major: 2, minor: 0 }),
                    pdf_header("%PDF-2.0\r%なななな\n ".as_bytes()));
+    }
+
+    #[test]
+    fn integers_test() {
+        assert_eq!(123, signed_integer(b"123").to_result().unwrap());
+        assert_eq!(-123, signed_integer(b"-123").to_result().unwrap());
+        assert_eq!(0, signed_integer(b"0").to_result().unwrap());
+        assert_eq!(0, signed_integer(b"-0").to_result().unwrap()); // heh
+    }
+
+    #[test]
+    fn floats_test() {
+        assert_relative_eq!(123.0, signed_integer(b"123.0").to_result().unwrap());
     }
 }
 

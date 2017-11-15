@@ -4,7 +4,7 @@ version = "0.1.0"
 authors = ["Nigel Kerr <nigel.kerr@gmail.com>"]
 
 [dependencies]
-
+approx="0.1.1"
 
 [dependencies.nom]
 version = "^3.2"
