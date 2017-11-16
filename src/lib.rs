@@ -130,26 +130,30 @@ named!(recognize_signed_integer<&[u8],&[u8]>,
         maybe_signed_integer
     )
 );
-named!(signed_integer<&[u8],i64>,
+named!(pub signed_integer<&[u8],i64>,
     map_res!( map_res!( recognize_signed_integer, str::from_utf8 ), FromStr::from_str )
 );
 
 
-named!(maybe_signed_float_ap<&[u8],(Option<&[u8]>,&[u8],&[u8],Option<&[u8]>)>,
+named!(maybe_signed_float_ap<&[u8],(
+Option<&[u8]>,
+&[u8],&[u8],Option<&[u8]>)>,
     tuple!(
         opt!(alt!(tag!(b"+") | tag!(b"-"))),
         digit,
         tag!(b"."),
-        opt!(digit)
+        opt!(complete!(digit))
     )
 );
 
-named!(maybe_signed_float_pp<&[u8],(Option<&[u8]>,&[u8],&[u8],Option<&[u8]>)>,
+named!(maybe_signed_float_pp<&[u8],(
+Option<&[u8]>,
+&[u8],&[u8],Option<&[u8]>)>,
     tuple!(
         opt!(alt!(tag!(b"+") | tag!(b"-"))),
         tag!(b"."),
         digit,
-        opt!(digit)
+        opt!(complete!(digit))
     )
 );
 
@@ -163,7 +167,7 @@ named!(recognize_signed_float<&[u8],&[u8]>,
 );
 
 
-named!(signed_float<&[u8],f64>,
+named!(pub signed_float<&[u8],f64>,
     map_res!( map_res!( recognize_signed_float, str::from_utf8 ), FromStr::from_str )
 );
 

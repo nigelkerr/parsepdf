@@ -1,5 +1,5 @@
 [package]
-name = "parse-pdf"
+name = "parsepdf"
 version = "0.1.0"
 authors = ["Nigel Kerr <nigel.kerr@gmail.com>"]
 
