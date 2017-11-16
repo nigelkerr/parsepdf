@@ -3,6 +3,7 @@ extern crate nom;
 #[macro_use]
 extern crate approx;
 
+
 use nom::*;
 use nom::digit;
 use nom::ErrorKind;
@@ -12,7 +13,6 @@ use std::ops::Range;
 use std::ops::RangeFrom;
 use std::ops::RangeTo;
 use std::str::FromStr;
-use std::str::from_utf8;
 
 // parse a pdf file, per ISO 32000-2_2017(en)
 
@@ -67,6 +67,7 @@ pub fn is_not_line_end_chars(chr: u8) -> bool {
 }
 
 // comments are going to by my undoing, given where all they can occur ( § 7.2.4 )
+
 
 named!(pdf_comment<&[u8]>,
     do_parse!(
@@ -134,37 +135,43 @@ named!(signed_integer<&[u8],i64>,
 );
 
 
-named!(maybe_signed_float_pp<&[u8],(Option<&[u8]>,&[u8],&[u8])>,
-    tuple!(
-        opt!(alt!(tag!(b"+") | tag!(b"-"))),
-        tag!(b"."),
-        digit
-    )
-);
 named!(maybe_signed_float_ap<&[u8],(Option<&[u8]>,&[u8],&[u8],Option<&[u8]>)>,
     tuple!(
         opt!(alt!(tag!(b"+") | tag!(b"-"))),
         digit,
         tag!(b"."),
-        opt!(nom::digit)
+        opt!(digit)
+    )
+);
+
+named!(maybe_signed_float_pp<&[u8],(Option<&[u8]>,&[u8],&[u8],Option<&[u8]>)>,
+    tuple!(
+        opt!(alt!(tag!(b"+") | tag!(b"-"))),
+        tag!(b"."),
+        digit,
+        opt!(digit)
     )
 );
 
 named!(recognize_signed_float<&[u8],&[u8]>,
     recognize!(
         alt!(
-            complete!( mabye_signed_float_ap ) |
+            complete!( maybe_signed_float_ap ) |
             complete!( maybe_signed_float_pp )
         )
     )
 );
+
+
 named!(signed_float<&[u8],f64>,
     map_res!( map_res!( recognize_signed_float, str::from_utf8 ), FromStr::from_str )
 );
 
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
 
     #[test]
     fn pdf_boolean_test() {
@@ -219,7 +226,7 @@ mod tests {
 
     #[test]
     fn floats_test() {
-        assert_relative_eq!(123.0, signed_integer(b"123.0").to_result().unwrap());
+        assert_relative_eq!(123.0, signed_float(b"123.0").to_result().unwrap());
     }
 }
 
