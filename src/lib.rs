@@ -223,10 +223,26 @@ mod tests {
         assert_eq!(0, signed_integer(b"0").to_result().unwrap());
         assert_eq!(0, signed_integer(b"-0").to_result().unwrap()); // heh
     }
+    macro_rules! float_test {
+        ($($name:ident: $value:expr,)*) => {
+        $(
+            #[test]
+            fn $name() {
+                let (input, expected) = $value;
+                assert_relative_eq!(expected, signed_float(input).to_result().unwrap());
+            }
+        )*
+        }
+    }
 
-    #[test]
-    fn floats_test() {
-        assert_relative_eq!(123.0, signed_float(b"123.0").to_result().unwrap());
+    float_test! {
+        f1: (b"123.0",123.0),
+        f2: (b"34.5",34.5),
+        f3: (b"-3.62",-3.62),
+        f4: (b"+123.6",123.6),
+        f5: (b"4.",4.0),
+        f6: (b"-.002",-0.002),
+        f7: (b"0.0",0.0),
     }
 }
 
