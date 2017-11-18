@@ -135,9 +135,7 @@ named!(pub signed_integer<&[u8],i64>,
 );
 
 
-named!(maybe_signed_float_ap<&[u8],(
-Option<&[u8]>,
-&[u8],&[u8],Option<&[u8]>)>,
+named!(maybe_signed_float_ap<&[u8],(Option<&[u8]>,&[u8],&[u8],Option<&[u8]>)>,
     tuple!(
         opt!(alt!(tag!(b"+") | tag!(b"-"))),
         digit,
@@ -146,9 +144,7 @@ Option<&[u8]>,
     )
 );
 
-named!(maybe_signed_float_pp<&[u8],(
-Option<&[u8]>,
-&[u8],&[u8],Option<&[u8]>)>,
+named!(maybe_signed_float_pp<&[u8],(Option<&[u8]>,&[u8],&[u8],Option<&[u8]>)>,
     tuple!(
         opt!(alt!(tag!(b"+") | tag!(b"-"))),
         tag!(b"."),
@@ -169,6 +165,70 @@ named!(recognize_signed_float<&[u8],&[u8]>,
 
 named!(pub signed_float<&[u8],f64>,
     map_res!( map_res!( recognize_signed_float, str::from_utf8 ), FromStr::from_str )
+);
+
+
+// "Table 1 -- White space characters"
+#[inline]
+fn is_pdf_whitespace(chr: u8) -> bool {
+    (chr == 0x00 ||
+        chr == 0x09 ||
+        chr == 0x0A ||
+        chr == 0x0C ||
+        chr == 0x0D ||
+        chr == 0x20
+    )
+}
+
+// § 7.3.4.3 Hexadecimal Strings
+// return here a slice of the final value
+
+#[inline]
+fn can_be_in_hexadecimal_string(chr: u8) -> bool {
+    is_hex_digit(chr) ||
+        is_pdf_whitespace(chr)
+}
+
+named!(maybe_hexadecimal_string<&[u8],&[u8]>,
+    delimited!(
+        tag!("<"),
+        take_while!( can_be_in_hexadecimal_string ),
+        tag!(">")
+    )
+);
+
+named!(recognize_hexadecimal_string<&[u8],&[u8]>,
+    recognize!( maybe_hexadecimal_string )
+);
+
+#[inline]
+fn from_hex(chr: u8) -> u8 {
+    // heh
+    if chr >= 0x30 && chr <= 0x39 {
+        chr - 0x30
+    } else if chr >= 0x41 && chr <= 0x46 {
+        chr - 0x37
+    } else {
+        chr - 0x57
+    }
+}
+
+// we are trusting that what came before worked out...
+fn byte_vec_from_hexadecimal_string(input: &[u8]) -> Result<Vec<u8>, nom::ErrorKind> {
+    let mut result: Vec<u8> = Vec::new();
+    let filtered: Vec<u8> = input.iter().filter(
+        |&x| nom::is_hex_digit(*x)
+    ).map(|&x| from_hex(x)).collect();
+
+    for pair in filtered.chunks(2) {
+        result.push( (pair[0] << 4) + pair[1] );
+    }
+
+    Ok(result)
+}
+
+named!(pub hexadecimal_string<&[u8],Vec<u8>>,
+    map_res!( recognize_hexadecimal_string, byte_vec_from_hexadecimal_string)
 );
 
 
@@ -247,6 +307,35 @@ mod tests {
         f5: (b"4.",4.0),
         f6: (b"-.002",-0.002),
         f7: (b"0.0",0.0),
+    }
+
+
+    #[test]
+    fn hexadecimal_string_test() {
+        assert_eq!(
+            b"abcdef0123456789".as_bytes(),
+            maybe_hexadecimal_string(b"<abcdef0123456789>".as_bytes()).to_result().unwrap()
+        );
+
+        assert_eq!(
+            b"abc def0123\n456789 ".as_bytes(),
+            maybe_hexadecimal_string(b"<abc def0123\n456789 >".as_bytes()).to_result().unwrap()
+        );
+
+        assert_eq!(
+            nom::Err::Position(nom::ErrorKind::Tag, &[45u8, 62u8][..]),
+            maybe_hexadecimal_string(b"<a->".as_bytes()).to_result().unwrap_err()
+        );
+
+        assert_eq!(
+            vec![0xab],
+            hexadecimal_string(b"<ab>".as_bytes()).to_result().unwrap()
+        );
+
+        assert_eq!(
+            vec![0xab, 0xcd, 0xef],
+            hexadecimal_string(b"<ab cd\nef>".as_bytes()).to_result().unwrap()
+        );
     }
 }
 
