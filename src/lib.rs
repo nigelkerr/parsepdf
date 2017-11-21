@@ -238,6 +238,260 @@ named!(pub hexadecimal_string<&[u8],Vec<u8>>,
 // § 7.3.4.2 Literal Strings ugh
 
 
+/// given the current state, could we have more octal digits
+/// if we'd had this much octal so far?
+fn could_have_more_octal_digits(v: i32, digits: usize) -> bool {
+    let mut retval: bool = false;
+
+    if digits < 3 {
+        retval = true;
+    }
+
+    if v > 31 {
+        // which is to say, greater than octal 37
+        retval = false;
+    }
+
+    retval
+}
+
+/// determine if we have a valid pdf literal string, and
+/// return the full sequence of bytes from opening paren
+/// to closing paren.
+/// no treatement of leading or following whitespace, handle
+/// that outside.
+/// we're going to need to have a crassly similar loop for
+/// taking this byte-sequence and understanding it as a
+/// character sequence.
+pub fn recognize_literal_string<T>(input: T) -> IResult<T, T> where
+    T: Slice<Range<usize>> + Slice<RangeFrom<usize>> + Slice<RangeTo<usize>>,
+    T: InputIter + InputLength,
+    <T as InputIter>::Item: AsChar {
+    let input_length = input.input_len();
+    if input_length == 0 {
+        return Incomplete(Needed::Unknown);
+    }
+
+    // what depth of balanced unescaped parens are we at?
+    // starts our iteration at 0, and it ought to be 0
+    // when we end (so, the delimiting paren is the first
+    // and last we encounter and manipulate this variable
+    // for...)
+    let mut parens_depth: usize = 0;
+
+    // did we just see an escaping backslash?
+    let mut was_escape_char: bool = false;
+
+    // how to represent the octals?  we want to accept the
+    // longest valid octal, even in the face of the escape
+    // sequence being followed by other digits
+    let mut current_octal_value: i32 = -1;
+    let mut number_octal_digits: usize = 0;
+
+    for (idx, item) in input.iter_indices() {
+        let chr = item.as_char();
+
+        if was_escape_char {
+            match chr {
+                '\n' | '\r' => {
+                    // glam! we care more on deserializing
+                }
+                'n' | 'r' | 't' | 'b' | 'f' | '(' | ')' | '\\' => {
+                    // glam! we'll do the right thing on deserializing
+                }
+                '0' | '1' | '2' | '3' | '4' | '5' | '6' | '7' => {
+                    number_octal_digits = 1;
+                    current_octal_value = (chr as u8 - '0' as u8) as i32;
+                }
+                _ => {
+                    // anything outside the above gets us an error
+                    return Error(error_position!(ErrorKind::Custom(3333), input));
+                }
+            }
+            was_escape_char = false;
+            continue;
+        }
+
+        if number_octal_digits > 0 {
+            if could_have_more_octal_digits(current_octal_value, number_octal_digits) &&
+                (chr >= '0' && '7' <= chr) {
+                number_octal_digits += 1;
+                current_octal_value = (current_octal_value << 3) + (chr as u8 - '0' as u8) as i32;
+                continue;
+            } else {
+                // glam! reset octal
+                number_octal_digits = 0;
+                current_octal_value = -1;
+            }
+        }
+
+        match chr {
+            '(' => {
+                parens_depth += 1;
+            }
+            ')' => {
+                parens_depth -= 1;
+                if parens_depth == 0 {
+                    return Done(input.slice(idx + 1..), input.slice(0..idx + 1));
+                }
+            }
+            '\\' => {
+                was_escape_char = true;
+            }
+            _ => {
+                // glam! arbitrary 8-bit values accepted here.
+            }
+        }
+    }
+
+    // i can see how we could get here with the _ branch, but
+    // not the 0 branch
+    match parens_depth {
+        0 => {}
+        _ => { return Incomplete(Needed::Unknown); }
+    }
+
+    // ... how would we ever get here?
+    Done(input.slice(input_length..), input)
+}
+
+/// make a sequence of bytes from the raw byte sequence of
+/// the PDF literal string.
+fn byte_vec_from_literal_string(input: &[u8]) -> Result<Vec<u8>, nom::ErrorKind> {
+    let mut result: Vec<u8> = Vec::new();
+
+    let input_length = input.input_len();
+    if input_length == 0 {
+        return Err(ErrorKind::Custom(6666));
+    }
+
+    // what depth of balanced unescaped parens are we at?
+    // starts our iteration at 0, and it ought to be 0
+    // when we end (so, the delimiting paren is the first
+    // and last we encounter and manipulate this variable
+    // for...)
+    let mut parens_depth: usize = 0;
+
+    // did we just see an escaping backslash?
+    let mut was_escape_char: bool = false;
+    let mut was_escaped_carriage_return: bool = false;
+
+    // how to represent the octals?  we want to accept the
+    // longest valid octal, even in the face of the escape
+    // sequence being followed by other digits
+    let mut current_octal_value: i32 = -1;
+    let mut number_octal_digits: usize = 0;
+
+    for (_idx, item) in input.iter_indices() {
+        let chr = *item;
+
+        if was_escaped_carriage_return {
+            was_escaped_carriage_return = false;
+            match chr {
+                b'\n' => {
+                    continue;
+                }
+                _ => {
+                    // glam! this wasnt involved in line ending and can proceed
+                }
+            }
+        }
+
+        if was_escape_char {
+            match chr {
+                b'\n' => {
+                    // glam! push nothing and carry on
+                }
+                b'\r' => {
+                    // we have to worry about \r vs \r\n here,
+                    // they both should be rendered into the result as \n
+                    was_escaped_carriage_return = true;
+                }
+                b'n' => {
+                    result.push(b'\n')
+                }
+                b'r' => {
+                    result.push(b'\r')
+                }
+                b't' => {
+                    result.push(b'\t')
+                }
+                b'b' => {
+                    result.push(0x08 as u8)
+                }
+                b'f' => {
+                    result.push(0x0c as u8)
+                }
+                b'(' | b')' | b'\\' => {
+                    result.push(chr);
+                }
+                b'0' | b'1' | b'2' | b'3' | b'4' | b'5' | b'6' | b'7' => {
+                    number_octal_digits = 1;
+                    current_octal_value = (chr as u8 - '0' as u8) as i32;
+                }
+                _ => {
+                    // anything outside the above gets us an error
+                    return Err(ErrorKind::Custom(4444));
+                }
+            }
+            was_escape_char = false;
+            continue;
+        }
+
+        if number_octal_digits > 0 {
+            if could_have_more_octal_digits(current_octal_value, number_octal_digits) &&
+                (chr == b'0' || chr == b'1' || chr == b'2' || chr == b'3' || chr == b'4' || chr == b'5' || chr == b'6' || chr == b'7' ) {
+                number_octal_digits += 1;
+                current_octal_value = (current_octal_value << 3) + ((chr as u8 - '0' as u8) as i32);
+                continue;
+            } else {
+                // glam! reset octal
+                result.push(current_octal_value as u8);
+                number_octal_digits = 0;
+                current_octal_value = -1;
+            }
+        }
+
+        match chr {
+            b'(' => {
+                if parens_depth > 0 {
+                    result.push(chr);
+                }
+                parens_depth += 1;
+            }
+            b')' => {
+                parens_depth -= 1;
+                if parens_depth > 0 {
+                    result.push(chr);
+                }
+                if parens_depth == 0 {
+                    break;
+                }
+            }
+            b'\\' => {
+                was_escape_char = true;
+            }
+            _ => {
+                result.push(chr);
+            }
+        }
+    }
+
+    // i can see how we could get here with the _ branch, but
+    // not the 0 branch
+    match parens_depth {
+        0 => {}
+        _ => { return Err(ErrorKind::Custom(5555)); }
+    }
+
+    Ok(result)
+}
+
+named!(pub literal_string<&[u8],Vec<u8>>,
+    map_res!( recognize_literal_string, byte_vec_from_literal_string )
+);
+
+
 
 #[cfg(test)]
 mod tests {
@@ -351,5 +605,116 @@ mod tests {
     }
 
 
+    macro_rules! lsrt {
+        ($($name:ident: $value:expr,)*) => {
+            $(
+                #[test]
+                fn $name() {
+                    let expected = $value;
+                    assert_eq!(expected,
+                        recognize_literal_string(expected).to_result().unwrap());
+                }
+            )*
+        }
+    }
+
+    macro_rules! lsit {
+        ($($name:ident: $value:expr,)*) => {
+            $(
+                #[test]
+                fn $name() {
+                    let (input, expected) = $value;
+                    assert_eq!(expected,
+                        recognize_literal_string(input).unwrap_inc());
+                }
+            )*
+        }
+    }
+
+
+    macro_rules! lset {
+        ($($name:ident: $value:expr,)*) => {
+            $(
+                #[test]
+                fn $name() {
+                    let (input, expected) = $value;
+                    assert_eq!(expected,
+                        recognize_literal_string(input));
+                }
+            )*
+        }
+    }
+
+
+    lsrt! {
+        lsrt_2: b"(a)".as_bytes(),
+        lsrt_3: b"(This is a string)".as_bytes(),
+        lsrt_4: b"(Strings can contain newlines\nand such.)".as_bytes(),
+        lsrt_5: b"(Strings can contain balanced parentheses ()\nand special characters ( * ! & } ^ %and so on) .)".as_bytes(),
+        lsrt_6: b"(The following is an empty string .)".as_bytes(),
+        lsrt_7: b"()".as_bytes(),
+        lsrt_8: b"(It has zero (0) length.)".as_bytes(),
+
+        // but we wont test equivalence til we deserialize...
+        lsrt_9: b"(These \\\rtwo strings \\\nare the same.)".as_bytes(),
+        lsrt_a: b"(These two strings are the same.)".as_bytes(),
+
+        lsrt_b: b"(This string has an end-of-line at the end of it.\n)".as_bytes(),
+        lsrt_c: b"(So does this one.\\n)".as_bytes(),
+        lsrt_d: b"(This string contains \\245two octal characters\\307.)".as_bytes(),
+        lsrt_e: b"(\\0053)".as_bytes(),
+        lsrt_f: b"(\\053)".as_bytes(),
+        lsrt_g: b"(\\53)".as_bytes(),
+    }
+
+    lsit! {
+        lsit_1: (b"(abcde".as_bytes(), Needed::Unknown),
+        lsit_2: (b"(abc()".as_bytes(), Needed::Unknown),
+        lsit_3: (b"(abc\\".as_bytes(), Needed::Unknown),
+    }
+
+    lset! {
+        lset_1: (b"(abc\\80)".as_bytes(), Error(nom::Err::Position(ErrorKind::Custom(3333), b"(abc\\80)".as_bytes()))),
+    }
+
+    macro_rules! tlsr {
+        ($($name:ident: $value:expr,)*) => {
+            $(
+                #[test]
+                fn $name() {
+                    let (input, expected) = $value;
+                    assert_eq!(
+                        literal_string(input).to_result().unwrap(),
+                        expected
+                    );
+                }
+            )*
+        }
+    }
+
+    tlsr! {
+        tlsr_0: (b"(abcd)".as_bytes(), b"abcd".as_bytes()),
+        tlsr_1: (b"(\\247)".as_bytes(), b"\xA7".as_bytes()),
+
+        tlsr_2: (b"(a)".as_bytes(), b"a".as_bytes()),
+        tlsr_3: (b"(This is a string)".as_bytes(), b"This is a string".as_bytes()),
+        tlsr_4: (b"(Strings can contain newlines\nand such.)".as_bytes(), b"Strings can contain newlines\nand such.".as_bytes()),
+        tlsr_5: (b"(Strings can contain balanced parentheses ()\nand special characters ( * ! & } ^ %and so on) .)".as_bytes(),
+                    b"Strings can contain balanced parentheses ()\nand special characters ( * ! & } ^ %and so on) .".as_bytes()),
+        tlsr_6: (b"(The following is an empty string .)".as_bytes(), b"The following is an empty string .".as_bytes()),
+        tlsr_7: (b"()".as_bytes(), b"".as_bytes()),
+        tlsr_8: (b"(It has zero (0) length.)".as_bytes(), b"It has zero (0) length.".as_bytes()),
+
+        tlsr_9: (b"(These \\\rtwo strings \\\nare the same.)".as_bytes(), b"These two strings are the same.".as_bytes()),
+        tlsr_a: (b"(These two strings are the same.)".as_bytes(), b"These two strings are the same.".as_bytes()),
+
+        tlsr_b: (b"(This string has an end-of-line at the end of it.\n)".as_bytes(), b"This string has an end-of-line at the end of it.\n".as_bytes()),
+        tlsr_c: (b"(So does this one.\\n)".as_bytes(), b"So does this one.\n".as_bytes()),
+        tlsr_d: (b"(This string contains \\245two octal characters\\307.)".as_bytes(), b"This string contains \xA5two octal characters\xC7.".as_bytes()),
+        tlsr_e: (b"(\\0053)".as_bytes(), b"\x053".as_bytes()),
+        tlsr_f: (b"(\\053)".as_bytes(), b"\x2B".as_bytes()),
+        tlsr_g: (b"(\\53)".as_bytes(), b"\x2B".as_bytes()),
+        tlsr_h: (b"(\\533)".as_bytes(), b"\x2B3".as_bytes()),
+    }
 }
 
