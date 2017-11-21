@@ -3,7 +3,6 @@ extern crate nom;
 #[macro_use]
 extern crate approx;
 
-
 use nom::*;
 use nom::digit;
 use nom::ErrorKind;
@@ -238,25 +237,7 @@ named!(pub hexadecimal_string<&[u8],Vec<u8>>,
 
 // § 7.3.4.2 Literal Strings ugh
 
-named!(maybe_literal_string<&[u8],&[u8]>,
-    delimited!(
-        tag!("("),
-        take_until!(")"),
-        tag!(")")
-    )
-);
 
-named!(recognize_literal_string<&[u8],&[u8]>,
-    recognize!(maybe_literal_string)
-);
-
-fn byte_vec_from_literal_string(input: &[u8]) -> Result<Vec<u8>, nom::ErrorKind> {
-    Ok(Vec::new())
-}
-
-named!(pub literal_string<&[u8], Vec<u8>>,
-    map_res!( recognize_literal_string, byte_vec_from_literal_string)
-);
 
 #[cfg(test)]
 mod tests {
@@ -369,17 +350,6 @@ mod tests {
         );
     }
 
-    #[test]
-    fn literal_string_tests() {
-        assert_eq!(
-            b"abcdef0123456789".as_bytes(),
-            maybe_literal_string(b"(abcdef0123456789)".as_bytes()).to_result().unwrap()
-        );
 
-        assert_eq!(
-            b"Strings can contain newlines\nand such.".as_bytes(),
-            maybe_literal_string(b"(Strings can contain newlines\nand such.)".as_bytes()).to_result().unwrap()
-        );
-    }
 }
 
