@@ -580,7 +580,7 @@ pub fn recognize_name_object<T>(input: T) -> IResult<T, T> where
     }
 
     if was_number_sign {
-        return Error(error_position!(ErrorKind::Custom(44444), input));
+        return Incomplete(Needed::Unknown);
     }
 
     Done(input.slice(input_length..), input)
@@ -669,6 +669,8 @@ fn byte_vec_from_name_object(input: &[u8]) -> Result<Vec<u8>, nom::ErrorKind> {
         }
     }
 
+    // we expect that we get called only if the recognizer
+    // succeeded, so here it is an error to be dangling.
     if was_escape_char {
         return Err(ErrorKind::Custom(66666));
     }
