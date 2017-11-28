@@ -493,7 +493,7 @@ named!(pub literal_string<&[u8],Vec<u8>>,
 );
 
 // § 7.3.5 Name objects
-// grumpy about the spec's permitting unescaped SOLIDUS in a name...
+
 /// recognize a Name object, returning the sequence of the entire Name
 /// object and its leading /.
 pub fn recognize_name_object<T>(input: T) -> IResult<T, T> where
@@ -562,15 +562,11 @@ pub fn recognize_name_object<T>(input: T) -> IResult<T, T> where
                 was_number_sign = true;
                 continue;
             },
-            '/' => {
-                // this begins the next Name object as near as i can tell
-                return Done(input.slice(idx..), input.slice(0..idx));
-            },
             '\x00' => {
                 return Error(error_position!(ErrorKind::Custom(33333), input));
             }
-            '\n'|'\r'|'\t'|' '|'\x0C' => {
-                // unescaped whitespace ends the name
+            '\n'|'\r'|'\t'|' '|'\x0C'|'/'|'('|')'|'<'|'>'|'['|']'|'{'|'}'|'%' => {
+                // unescaped whitespace and unescaped delimiters ends the name
                 return Done(input.slice(idx..), input.slice(0..idx));
             }
             '\x21'...'\x7e' => {
@@ -684,12 +680,10 @@ fn byte_vec_from_name_object(input: &[u8]) -> Result<Vec<u8>, nom::ErrorKind> {
     Ok(result)
 }
 
-
+/// return the name itself expanded to un-escaped form
 named!(pub name_object<&[u8],Vec<u8>>,
     map_res!( recognize_name_object, byte_vec_from_name_object )
 );
-
-
 
 
 #[cfg(test)]
@@ -943,6 +937,7 @@ mod tests {
         nort_12: (b"/A#42".as_bytes(),b"AB".as_bytes()),
         nort_13: (b"/#2F".as_bytes(),b"/".as_bytes()),
         nort_14: (b"/".as_bytes(),b"".as_bytes()),
+        nort_15: (b"/abcd[".as_bytes(),b"abcd".as_bytes()),
     }
 }
 
