@@ -651,15 +651,11 @@ fn byte_vec_from_name_object(input: &[u8]) -> Result<Vec<u8>, nom::ErrorKind> {
                 was_escape_char = true;
                 continue;
             },
-            b'/' => {
-                // this begins the next Name object as near as i can tell
-                return Ok(result);
-            },
             b'\x00' => {
                 return Err(ErrorKind::Custom(111111));
             }
-            b'\n'|b'\r'|b'\t'|b' '|b'\x0C' => {
-                // unescaped whitespace ends the name
+            b'\n'|b'\r'|b'\t'|b' '|b'\x0C'|b'/'|b'('|b')'|b'<'|b'>'|b'['|b']'|b'{'|b'}'|b'%' => {
+                // unescaped whitespace or delimiters end the name
                 return Ok(result);
             }
             b'\x21'...b'\x7e' => {
