@@ -16,9 +16,13 @@ use std::str::FromStr;
 // parse a pdf file, per ISO 32000-2_2017(en)
 
 #[derive(Debug, PartialEq, Eq)]
-enum PdfVersion {
+pub enum PdfVersion {
     Known { major: u32, minor: u32 },
     Unknown
+}
+
+pub enum NullObject {
+    Null
 }
 
 // while i figure out how to live this way better: fails are 0.
@@ -683,11 +687,45 @@ named!(pub name_object<&[u8],Vec<u8>>,
     map_res!( recognize_name_object, byte_vec_from_name_object )
 );
 
+named!(recognize_null_object<&[u8],&[u8]>,
+    recognize!(tag!(b"null"))
+);
+
+named!(pub null_object<&[u8],NullObject>,
+    do_parse!(
+        recognize_null_object >>
+        (NullObject::Null)
+    )
+);
+
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    #[test]
+    fn pdf_null_test() {
+        match null_object(b"null").to_result().unwrap() {
+            NullObject::Null => {
+            },
+        }
+        match null_object(b"nul") {
+            Incomplete(_) => {
+
+            },
+            _ => {
+                assert_eq!(1,0);
+            }
+        }
+        match null_object(b"mul") {
+            Error(_) => {
+
+            },
+            _ => {
+                assert_eq!(2,0);
+            }
+        }
+    }
 
     #[test]
     fn pdf_boolean_test() {
