@@ -40,7 +40,7 @@ fn byte_to_uint(slice: &[u8]) -> u32 {
 
 // which of these is better?  how will i figure that out?
 
-named!(pdf_line_ending_by_macro,
+named!(pub pdf_line_ending_by_macro<&[u8],&[u8]>,
     alt!(
         complete!(tag!(b"\r\n")) |
         complete!(tag!(b"\r")) |
@@ -48,10 +48,7 @@ named!(pdf_line_ending_by_macro,
     )
 );
 
-pub fn pdf_line_ending<T>(input: T) -> nom::IResult<T, T> where
-    T: nom::Slice<Range<usize>> + nom::Slice<RangeFrom<usize>> + nom::Slice<RangeTo<usize>>,
-    T: nom::InputIter + nom::InputLength,
-    T: nom::Compare<&'static str> {
+pub fn pdf_line_ending(input: &[u8]) -> nom::IResult<&[u8], &[u8]> {
     // this here _ => is amounting to the complete! behavior above, it seems.
     match input.compare("\r\n") {
         CompareResult::Ok => Done(input.slice(2..), input.slice(0..2)),
@@ -73,7 +70,7 @@ pub fn is_not_line_end_chars(chr: u8) -> bool {
 // comments are going to by my undoing, given where all they can occur ( § 7.2.4 )
 
 
-named!(pdf_comment<&[u8]>,
+named!(pub pdf_comment<&[u8]>,
     do_parse!(
         tag!(b"%") >>
         val: take_while!( is_not_line_end_chars ) >>
@@ -96,7 +93,7 @@ named!(pdf_version<&[u8],&[u8]>,
     )
 );
 
-named!(pdf_magic<&[u8],PdfVersion>,
+named!(pub pdf_magic<&[u8],PdfVersion>,
     do_parse!(
         tag!(b"%PDF-") >>
         ver_bytes: pdf_version >>
@@ -107,7 +104,7 @@ named!(pdf_magic<&[u8],PdfVersion>,
 
 // § 7.5.2
 
-named!(pdf_header<&[u8],PdfVersion>,
+named!(pub pdf_header<&[u8],PdfVersion>,
     do_parse!(
         ver: pdf_magic >>
         opt!( pdf_comment ) >>
@@ -117,7 +114,7 @@ named!(pdf_header<&[u8],PdfVersion>,
 
 // § 7.3.2
 
-named!(pdf_boolean<&[u8],bool>,
+named!(pub pdf_boolean<&[u8],bool>,
     map_res!(map_res!( alt!( tag!(b"true") | tag!(b"false")), str::from_utf8 ), FromStr::from_str)
 );
 
@@ -129,7 +126,7 @@ named!(maybe_signed_integer<&[u8],(Option<&[u8]>, &[u8])>,
         nom::digit
     )
 );
-named!(recognize_signed_integer<&[u8],&[u8]>,
+named!(pub recognize_signed_integer<&[u8],&[u8]>,
     recognize!(
         maybe_signed_integer
     )
@@ -157,7 +154,7 @@ named!(maybe_signed_float_pp<&[u8],(Option<&[u8]>,&[u8],&[u8],Option<&[u8]>)>,
     )
 );
 
-named!(recognize_signed_float<&[u8],&[u8]>,
+named!(pub recognize_signed_float<&[u8],&[u8]>,
     recognize!(
         alt!(
             complete!( maybe_signed_float_ap ) |
@@ -174,7 +171,7 @@ named!(pub signed_float<&[u8],f64>,
 
 // "Table 1 -- White space characters"
 #[inline]
-fn is_pdf_whitespace(chr: u8) -> bool {
+pub fn is_pdf_whitespace(chr: u8) -> bool {
     (chr == 0x00 ||
         chr == 0x09 ||
         chr == 0x0A ||
@@ -201,7 +198,7 @@ named!(maybe_hexadecimal_string<&[u8],&[u8]>,
     )
 );
 
-named!(recognize_hexadecimal_string<&[u8],&[u8]>,
+named!(pub recognize_hexadecimal_string<&[u8],&[u8]>,
     recognize!( maybe_hexadecimal_string )
 );
 
@@ -263,7 +260,7 @@ fn could_have_more_octal_digits(v: i32, digits: usize) -> bool {
 /// determine if we have a valid pdf literal string, and
 /// return the full sequence of bytes from opening paren
 /// to closing paren.
-/// no treatement of leading or following whitespace, handle
+/// no treatment of leading or following whitespace, handle
 /// that outside.
 /// we're going to need to have a crassly similar loop for
 /// taking this byte-sequence and understanding it as a
@@ -687,7 +684,7 @@ named!(pub name_object<&[u8],Vec<u8>>,
     map_res!( recognize_name_object, byte_vec_from_name_object )
 );
 
-named!(recognize_null_object<&[u8],&[u8]>,
+named!(pub recognize_null_object<&[u8],&[u8]>,
     recognize!(tag!(b"null"))
 );
 
@@ -698,10 +695,32 @@ named!(pub null_object<&[u8],NullObject>,
     )
 );
 
+named!(maybe_indirect_reference<&[u8], (&[u8],&[u8],&[u8],&[u8]) >,
+    tuple!(
+        take_while1!( is_digit ),
+        tag!(b" "),
+        take_while1!( is_digit ),
+        tag!(b" R")
+    )
+);
+
+named!(pub recognize_indirect_reference<&[u8],&[u8]>,
+    recognize!(
+        maybe_indirect_reference
+    )
+);
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn pdf_indirect_reference_test() {
+        assert_eq!(b"95 0 R".as_bytes(), recognize_indirect_reference(b"95 0 R".as_bytes()).to_result().unwrap());
+        assert_eq!(b"95 0 R".as_bytes(), recognize_indirect_reference(b"95 0 R ".as_bytes()).to_result().unwrap());
+        assert_eq!(b"9 1 R".as_bytes(), recognize_indirect_reference(b"9 1 R".as_bytes()).to_result().unwrap());
+
+    }
 
     #[test]
     fn pdf_null_test() {
