@@ -70,13 +70,32 @@ pub fn is_not_line_end_chars(chr: u8) -> bool {
 // comments are going to by my undoing, given where all they can occur ( § 7.2.4 )
 
 
-named!(pub pdf_comment<&[u8]>,
-    do_parse!(
-        tag!(b"%") >>
-        val: take_while!( is_not_line_end_chars ) >>
-        pdf_line_ending >>
-        (val)
+named!(pub recognize_comment<&[u8],&[u8]>,
+    recognize!(
+        tuple!(
+            tag!(b"%"),
+            take_while!( is_not_line_end_chars ),
+            pdf_line_ending
+        )
     )
+);
+
+fn byte_vec_from_comment(input: &[u8]) -> Result<Vec<u8>, nom::ErrorKind> {
+    let mut result: Vec<u8> = Vec::new();
+
+    // skip the single % starting the comment.
+    for item in input.iter().skip(1) {
+        if is_not_line_end_chars( *item ) {
+            result.push(*item);
+        }
+    }
+
+    Ok(result)
+}
+
+// just the bytes of the comment itself, not the delimiting
+named!(pub comment<&[u8],Vec<u8> >,
+    map_res!( recognize_comment, byte_vec_from_comment )
 );
 
 named!(pdf_version<&[u8],&[u8]>,
@@ -107,15 +126,18 @@ named!(pub pdf_magic<&[u8],PdfVersion>,
 named!(pub pdf_header<&[u8],PdfVersion>,
     do_parse!(
         ver: pdf_magic >>
-        opt!( pdf_comment ) >>
+        opt!( comment ) >>
         ( ver )
     )
 );
 
 // § 7.3.2
+named!(pub recognize_boolean<&[u8],&[u8]>,
+    recognize!(alt!( tag!(b"true") | tag!(b"false")))
+);
 
-named!(pub pdf_boolean<&[u8],bool>,
-    map_res!(map_res!( alt!( tag!(b"true") | tag!(b"false")), str::from_utf8 ), FromStr::from_str)
+named!(pub boolean<&[u8],bool>,
+    map_res!(map_res!( recognize_boolean , str::from_utf8 ), FromStr::from_str)
 );
 
 // § 7.3.3
@@ -748,15 +770,15 @@ mod tests {
 
     #[test]
     fn pdf_boolean_test() {
-        assert_eq!(true, pdf_boolean(b"true ").to_result().unwrap());
-        assert_eq!(false, pdf_boolean(b"false").to_result().unwrap());
-        assert_eq!(nom::Err::Position(nom::ErrorKind::Tag, &[98u8, 108u8, 97u8, 104u8][..]),
-                   pdf_magic(b"blah").to_result().unwrap_err());
+        assert_eq!(true, boolean(b"true ").to_result().unwrap());
+        assert_eq!(false, boolean(b"false").to_result().unwrap());
     }
 
     #[test]
     fn pdf_magic_test() {
         assert_eq!(PdfVersion::Known { major: 1, minor: 0 }, pdf_magic(b"%PDF-1.0\r\n").to_result().unwrap());
+        assert_eq!(nom::Err::Position(nom::ErrorKind::Tag, &[98u8, 108u8, 97u8, 104u8][..]),
+                   pdf_magic(b"blah").to_result().unwrap_err());
         assert_eq!(nom::Err::Position(nom::ErrorKind::Alt, &[51u8, 46u8, 48u8, 13u8][..]),
                    pdf_magic(b"%PDF-3.0\r").to_result().unwrap_err());
     }
@@ -777,8 +799,8 @@ mod tests {
 
     #[test]
     fn pdf_comments_test() {
-        assert_eq!(b"hiya".as_bytes(), pdf_comment(b"%hiya\n").to_result().unwrap());
-        assert_eq!("なななな".as_bytes(), pdf_comment("%なななな\n".as_bytes()).to_result().unwrap());
+        assert_eq!(comment(b"%hiya\n").to_result().unwrap(), b"hiya".as_bytes() );
+        assert_eq!(comment("%なななな\n".as_bytes()).to_result().unwrap(), "なななな".as_bytes() );
     }
 
     #[test]
