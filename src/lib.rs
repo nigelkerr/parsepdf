@@ -17,25 +17,12 @@ use std::str::FromStr;
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum PdfVersion {
-    Known { major: u32, minor: u32 },
+    Known { ver: Vec<u8> },
     Unknown
 }
 
 pub enum NullObject {
     Null
-}
-
-// while i figure out how to live this way better: fails are 0.
-// you want to know ahead of time that this will succeed, is
-// what this silly thing means.
-fn byte_to_uint(slice: &[u8]) -> u32 {
-    match str::from_utf8(slice) {
-        Ok(numstr) => match numstr.parse() {
-            Ok(num) => num,
-            Err(_) => 0
-        },
-        Err(_) => 0
-    }
 }
 
 // which of these is better?  how will i figure that out?
@@ -68,7 +55,6 @@ pub fn is_not_line_end_chars(chr: u8) -> bool {
 }
 
 // comments are going to by my undoing, given where all they can occur ( § 7.2.4 )
-
 
 named!(pub recognize_comment<&[u8],&[u8]>,
     recognize!(
@@ -117,7 +103,7 @@ named!(pub pdf_magic<&[u8],PdfVersion>,
         tag!(b"%PDF-") >>
         ver_bytes: pdf_version >>
         pdf_line_ending_by_macro >>
-        ( PdfVersion::Known{ major: byte_to_uint(&ver_bytes[0..1]), minor: byte_to_uint(&ver_bytes[2..])} )
+        ( PdfVersion::Known{ ver: ver_bytes.to_vec() } )
     )
 );
 
@@ -776,7 +762,7 @@ mod tests {
 
     #[test]
     fn pdf_magic_test() {
-        assert_eq!(PdfVersion::Known { major: 1, minor: 0 }, pdf_magic(b"%PDF-1.0\r\n").to_result().unwrap());
+        assert_eq!(PdfVersion::Known { ver: b"1.0".to_vec() }, pdf_magic(b"%PDF-1.0\r\n").to_result().unwrap());
         assert_eq!(nom::Err::Position(nom::ErrorKind::Tag, &[98u8, 108u8, 97u8, 104u8][..]),
                    pdf_magic(b"blah").to_result().unwrap_err());
         assert_eq!(nom::Err::Position(nom::ErrorKind::Alt, &[51u8, 46u8, 48u8, 13u8][..]),
@@ -805,9 +791,9 @@ mod tests {
 
     #[test]
     fn pdf_header_test() {
-        assert_eq!(nom::IResult::Done(b" ".as_bytes(), PdfVersion::Known { major: 1, minor: 0 }),
+        assert_eq!(nom::IResult::Done(b" ".as_bytes(), PdfVersion::Known { ver: b"1.0".to_vec() }),
                    pdf_header(b"%PDF-1.0\r ".as_bytes()));
-        assert_eq!(nom::IResult::Done(b" ".as_bytes(), PdfVersion::Known { major: 2, minor: 0 }),
+        assert_eq!(nom::IResult::Done(b" ".as_bytes(), PdfVersion::Known { ver: b"2.0".to_vec() }),
                    pdf_header("%PDF-2.0\r%なななな\n ".as_bytes()));
     }
 
