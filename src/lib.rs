@@ -21,8 +21,10 @@ pub enum PdfVersion {
     Unknown
 }
 
-pub enum NullObject {
-    Null
+#[derive(Debug, PartialEq, Eq)]
+pub enum PdfObject {
+    Null,
+    IndirectReference { number: u32, version: u32 },
 }
 
 // which of these is better?  how will i figure that out?
@@ -71,7 +73,7 @@ fn byte_vec_from_comment(input: &[u8]) -> Result<Vec<u8>, nom::ErrorKind> {
 
     // skip the single % starting the comment.
     for item in input.iter().skip(1) {
-        if is_not_line_end_chars( *item ) {
+        if is_not_line_end_chars(*item) {
             result.push(*item);
         }
     }
@@ -231,8 +233,8 @@ fn byte_vec_from_hexadecimal_string(input: &[u8]) -> Result<Vec<u8>, nom::ErrorK
 
     for pair in filtered.chunks(2) {
         match pair.len() {
-            2 => { result.push((pair[0] << 4) + pair[1]); },
-            1 => { result.push((pair[0] << 4)); },
+            2 => { result.push((pair[0] << 4) + pair[1]); }
+            1 => { result.push((pair[0] << 4)); }
             _ => return Err(nom::ErrorKind::Custom(1111)),
         }
     }
@@ -450,7 +452,7 @@ fn byte_vec_from_literal_string(input: &[u8]) -> Result<Vec<u8>, nom::ErrorKind>
 
         if number_octal_digits > 0 {
             if could_have_more_octal_digits(current_octal_value, number_octal_digits) &&
-                (chr == b'0' || chr == b'1' || chr == b'2' || chr == b'3' || chr == b'4' || chr == b'5' || chr == b'6' || chr == b'7' ) {
+                (chr == b'0' || chr == b'1' || chr == b'2' || chr == b'3' || chr == b'4' || chr == b'5' || chr == b'6' || chr == b'7') {
                 number_octal_digits += 1;
                 current_octal_value = (current_octal_value << 3) + ((chr as u8 - '0' as u8) as i32);
                 continue;
@@ -509,7 +511,6 @@ pub fn recognize_name_object<T>(input: T) -> IResult<T, T> where
     T: Slice<Range<usize>> + Slice<RangeFrom<usize>> + Slice<RangeTo<usize>>,
     T: InputIter + InputLength,
     <T as InputIter>::Item: AsChar {
-
     let input_length = input.input_len();
     if input_length == 0 {
         return Incomplete(Needed::Unknown);
@@ -524,7 +525,7 @@ pub fn recognize_name_object<T>(input: T) -> IResult<T, T> where
     let mut count_hex_digits: usize = 0;
     let mut current_hex_value: u8 = 0;
 
-    for ( idx, item ) in input.iter_indices() {
+    for (idx, item) in input.iter_indices() {
         let chr = item.as_char();
 
         // did we start right?
@@ -533,10 +534,10 @@ pub fn recognize_name_object<T>(input: T) -> IResult<T, T> where
                 '/' => {
                     first_iteration = false;
                     continue;
-                },
+                }
                 _ => {
                     return Error(error_position!(ErrorKind::Custom(7777), input));
-                },
+                }
             }
         }
 
@@ -554,12 +555,12 @@ pub fn recognize_name_object<T>(input: T) -> IResult<T, T> where
                                 was_number_sign = false;
                             }
                             continue;
-                        },
+                        }
                         false => {
                             return Error(error_position!(ErrorKind::Custom(9999), input));
-                        },
+                        }
                     }
-                },
+                }
                 _ => {
                     return Error(error_position!(ErrorKind::Custom(8888), input));
                 }
@@ -570,21 +571,21 @@ pub fn recognize_name_object<T>(input: T) -> IResult<T, T> where
             '#' => {
                 was_number_sign = true;
                 continue;
-            },
+            }
             '\x00' => {
                 return Error(error_position!(ErrorKind::Custom(33333), input));
             }
-            '\n'|'\r'|'\t'|' '|'\x0C'|'/'|'('|')'|'<'|'>'|'['|']'|'{'|'}'|'%' => {
+            '\n' | '\r' | '\t' | ' ' | '\x0C' | '/' | '(' | ')' | '<' | '>' | '[' | ']' | '{' | '}' | '%' => {
                 // unescaped whitespace and unescaped delimiters ends the name
                 return Done(input.slice(idx..), input.slice(0..idx));
             }
-            '\x21'...'\x7e' => {
+            '\x21' ... '\x7e' => {
                 // glam!
-            },
+            }
             _ => {
                 // these ought to have been # encoded
                 return Error(error_position!(ErrorKind::Custom(22222), input));
-            },
+            }
         }
     }
 
@@ -593,7 +594,6 @@ pub fn recognize_name_object<T>(input: T) -> IResult<T, T> where
     }
 
     Done(input.slice(input_length..), input)
-
 }
 
 fn byte_vec_from_name_object(input: &[u8]) -> Result<Vec<u8>, nom::ErrorKind> {
@@ -612,7 +612,7 @@ fn byte_vec_from_name_object(input: &[u8]) -> Result<Vec<u8>, nom::ErrorKind> {
     let mut count_hex_digits: usize = 0;
     let mut current_hex_value: u8 = 0;
 
-    for ( _idx, item ) in input.iter_indices() {
+    for (_idx, item) in input.iter_indices() {
         let chr = *item;
 
         // did we start right?
@@ -621,10 +621,10 @@ fn byte_vec_from_name_object(input: &[u8]) -> Result<Vec<u8>, nom::ErrorKind> {
                 b'/' => {
                     first_iteration = false;
                     continue;
-                },
+                }
                 _ => {
                     return Err(ErrorKind::Custom(77777));
-                },
+                }
             }
         }
 
@@ -643,12 +643,12 @@ fn byte_vec_from_name_object(input: &[u8]) -> Result<Vec<u8>, nom::ErrorKind> {
                                 was_escape_char = false;
                             }
                             continue;
-                        },
+                        }
                         false => {
                             return Err(ErrorKind::Custom(99999));
-                        },
+                        }
                     }
-                },
+                }
                 _ => {
                     return Err(ErrorKind::Custom(88888));
                 }
@@ -659,22 +659,22 @@ fn byte_vec_from_name_object(input: &[u8]) -> Result<Vec<u8>, nom::ErrorKind> {
             b'#' => {
                 was_escape_char = true;
                 continue;
-            },
+            }
             b'\x00' => {
                 return Err(ErrorKind::Custom(111111));
             }
-            b'\n'|b'\r'|b'\t'|b' '|b'\x0C'|b'/'|b'('|b')'|b'<'|b'>'|b'['|b']'|b'{'|b'}'|b'%' => {
+            b'\n' | b'\r' | b'\t' | b' ' | b'\x0C' | b'/' | b'(' | b')' | b'<' | b'>' | b'[' | b']' | b'{' | b'}' | b'%' => {
                 // unescaped whitespace or delimiters end the name
                 return Ok(result);
             }
-            b'\x21'...b'\x7e' => {
+            b'\x21' ... b'\x7e' => {
                 result.push(chr);
                 // glam!
-            },
+            }
             _ => {
                 // these ought to have been # encoded
                 return Err(ErrorKind::Custom(222222));
-            },
+            }
         }
     }
 
@@ -696,18 +696,38 @@ named!(pub recognize_null_object<&[u8],&[u8]>,
     recognize!(tag!(b"null"))
 );
 
-named!(pub null_object<&[u8],NullObject>,
+named!(pub null_object<&[u8],PdfObject>,
     do_parse!(
         recognize_null_object >>
-        (NullObject::Null)
+        (PdfObject::Null)
+    )
+);
+
+// surely there's a better way...
+named!(non_zero_positive_int_not_padded<&[u8], &[u8] >,
+    recognize!(
+        pair!(
+            alt!(
+                tag!(b"1") |
+                tag!(b"2") |
+                tag!(b"3") |
+                tag!(b"4") |
+                tag!(b"5") |
+                tag!(b"6") |
+                tag!(b"7") |
+                tag!(b"8") |
+                tag!(b"9")
+            ),
+            opt!( complete!(nom::digit ) )
+        )
     )
 );
 
 named!(maybe_indirect_reference<&[u8], (&[u8],&[u8],&[u8],&[u8]) >,
     tuple!(
-        take_while1!( is_digit ),
+        non_zero_positive_int_not_padded,
         tag!(b" "),
-        take_while1!( is_digit ),
+        complete!(nom::digit),
         tag!(b" R")
     )
 );
@@ -715,6 +735,30 @@ named!(maybe_indirect_reference<&[u8], (&[u8],&[u8],&[u8],&[u8]) >,
 named!(pub recognize_indirect_reference<&[u8],&[u8]>,
     recognize!(
         maybe_indirect_reference
+    )
+);
+
+#[inline]
+fn dec_u32(input: &[u8]) -> u32 {
+    let mut res = 0u32;
+
+    for &e in input {
+        let digit = e as char;
+        let value = digit.to_digit(10).unwrap_or(0);
+        res = value + (res * 10);
+    }
+    res
+}
+
+named!(pub indirect_reference<&[u8],PdfObject>,
+    do_parse!(
+        number_bytes: non_zero_positive_int_not_padded >>
+        tag!(b" ") >>
+        version_bytes: recognize!(digit) >>
+        tag!(b" R") >>
+        (
+            PdfObject::IndirectReference{ number: dec_u32(number_bytes), version: dec_u32(version_bytes) }
+        )
     )
 );
 
@@ -727,29 +771,31 @@ mod tests {
         assert_eq!(b"95 0 R".as_bytes(), recognize_indirect_reference(b"95 0 R".as_bytes()).to_result().unwrap());
         assert_eq!(b"95 0 R".as_bytes(), recognize_indirect_reference(b"95 0 R ".as_bytes()).to_result().unwrap());
         assert_eq!(b"9 1 R".as_bytes(), recognize_indirect_reference(b"9 1 R".as_bytes()).to_result().unwrap());
-
+        assert_eq!(Err(nom::Err::Position(nom::ErrorKind::Alt, [48, 57, 32, 49, 32, 82].as_bytes())), recognize_indirect_reference(b"09 1 R".as_bytes()).to_result());
+        assert_eq!(PdfObject::IndirectReference { number: 95, version: 0 },
+                   indirect_reference(b"95 0 R ".as_bytes()).to_result().unwrap());
+        assert_eq!(PdfObject::IndirectReference { number: 95, version: 100 },
+                   indirect_reference(b"95 100 R ".as_bytes()).to_result().unwrap());
     }
 
     #[test]
     fn pdf_null_test() {
         match null_object(b"null").to_result().unwrap() {
-            NullObject::Null => {
+            PdfObject::Null => {}
+            PdfObject::IndirectReference { number: _, version: _ } => {
+                assert_eq!(3,0);
             },
         }
         match null_object(b"nul") {
-            Incomplete(_) => {
-
-            },
+            Incomplete(_) => {}
             _ => {
-                assert_eq!(1,0);
+                assert_eq!(1, 0);
             }
         }
         match null_object(b"mul") {
-            Error(_) => {
-
-            },
+            Error(_) => {}
             _ => {
-                assert_eq!(2,0);
+                assert_eq!(2, 0);
             }
         }
     }
@@ -785,8 +831,8 @@ mod tests {
 
     #[test]
     fn pdf_comments_test() {
-        assert_eq!(comment(b"%hiya\n").to_result().unwrap(), b"hiya".as_bytes() );
-        assert_eq!(comment("%なななな\n".as_bytes()).to_result().unwrap(), "なななな".as_bytes() );
+        assert_eq!(comment(b"%hiya\n").to_result().unwrap(), b"hiya".as_bytes());
+        assert_eq!(comment("%なななな\n".as_bytes()).to_result().unwrap(), "なななな".as_bytes());
     }
 
     #[test]
