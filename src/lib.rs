@@ -8,9 +8,6 @@ use nom::digit;
 use nom::ErrorKind;
 use nom::IResult::*;
 use std::str;
-use std::ops::Range;
-use std::ops::RangeFrom;
-use std::ops::RangeTo;
 use std::str::FromStr;
 
 // parse a pdf file, per ISO 32000-2_2017(en)
@@ -24,7 +21,7 @@ pub enum PdfVersion {
 #[derive(Debug, PartialEq, Eq)]
 pub enum PdfObject {
     Null,
-    IndirectReference { number: u32, version: u32 },
+    IndirectReference { number: u32, version: u32 }
 }
 
 // which of these is better?  how will i figure that out?
@@ -275,10 +272,8 @@ fn could_have_more_octal_digits(v: i32, digits: usize) -> bool {
 /// we're going to need to have a crassly similar loop for
 /// taking this byte-sequence and understanding it as a
 /// character sequence.
-pub fn recognize_literal_string<T>(input: T) -> IResult<T, T> where
-    T: Slice<Range<usize>> + Slice<RangeFrom<usize>> + Slice<RangeTo<usize>>,
-    T: InputIter + InputLength,
-    <T as InputIter>::Item: AsChar {
+pub fn recognize_literal_string(input: &[u8]) -> IResult<&[u8], &[u8]>
+{
     let input_length = input.input_len();
     if input_length == 0 {
         return Incomplete(Needed::Unknown);
@@ -301,19 +296,19 @@ pub fn recognize_literal_string<T>(input: T) -> IResult<T, T> where
     let mut number_octal_digits: usize = 0;
 
     for (idx, item) in input.iter_indices() {
-        let chr = item.as_char();
+        let chr = *item;
 
         if was_escape_char {
             match chr {
-                '\n' | '\r' => {
+                b'\n' | b'\r' => {
                     // glam! we care more on deserializing
                 }
-                'n' | 'r' | 't' | 'b' | 'f' | '(' | ')' | '\\' => {
+                b'n' | b'r' | b't' | b'b' | b'f' | b'(' | b')' | b'\\' => {
                     // glam! we'll do the right thing on deserializing
                 }
-                '0' | '1' | '2' | '3' | '4' | '5' | '6' | '7' => {
+                b'0' | b'1' | b'2' | b'3' | b'4' | b'5' | b'6' | b'7' => {
                     number_octal_digits = 1;
-                    current_octal_value = (chr as u8 - '0' as u8) as i32;
+                    current_octal_value = (chr - b'0') as i32;
                 }
                 _ => {
                     // anything outside the above gets us an error
@@ -326,9 +321,9 @@ pub fn recognize_literal_string<T>(input: T) -> IResult<T, T> where
 
         if number_octal_digits > 0 {
             if could_have_more_octal_digits(current_octal_value, number_octal_digits) &&
-                (chr >= '0' && '7' <= chr) {
+                (chr >= b'0' && b'7' <= chr) {
                 number_octal_digits += 1;
-                current_octal_value = (current_octal_value << 3) + (chr as u8 - '0' as u8) as i32;
+                current_octal_value = (current_octal_value << 3) + (chr - b'0') as i32;
                 continue;
             } else {
                 // glam! reset octal
@@ -338,16 +333,16 @@ pub fn recognize_literal_string<T>(input: T) -> IResult<T, T> where
         }
 
         match chr {
-            '(' => {
+            b'(' => {
                 parens_depth += 1;
             }
-            ')' => {
+            b')' => {
                 parens_depth -= 1;
                 if parens_depth == 0 {
                     return Done(input.slice(idx + 1..), input.slice(0..idx + 1));
                 }
             }
-            '\\' => {
+            b'\\' => {
                 was_escape_char = true;
             }
             _ => {
@@ -507,10 +502,8 @@ named!(pub literal_string<&[u8],Vec<u8>>,
 
 /// recognize a Name object, returning the sequence of the entire Name
 /// object and its leading /.
-pub fn recognize_name_object<T>(input: T) -> IResult<T, T> where
-    T: Slice<Range<usize>> + Slice<RangeFrom<usize>> + Slice<RangeTo<usize>>,
-    T: InputIter + InputLength,
-    <T as InputIter>::Item: AsChar {
+pub fn recognize_name_object(input: &[u8]) -> IResult<&[u8], &[u8]>
+{
     let input_length = input.input_len();
     if input_length == 0 {
         return Incomplete(Needed::Unknown);
@@ -526,12 +519,12 @@ pub fn recognize_name_object<T>(input: T) -> IResult<T, T> where
     let mut current_hex_value: u8 = 0;
 
     for (idx, item) in input.iter_indices() {
-        let chr = item.as_char();
+        let chr = *item;
 
         // did we start right?
         if first_iteration {
             match chr {
-                '/' => {
+                b'/' => {
                     first_iteration = false;
                     continue;
                 }
@@ -568,18 +561,18 @@ pub fn recognize_name_object<T>(input: T) -> IResult<T, T> where
         }
 
         match chr {
-            '#' => {
+            b'#' => {
                 was_number_sign = true;
                 continue;
             }
-            '\x00' => {
+            b'\x00' => {
                 return Error(error_position!(ErrorKind::Custom(33333), input));
             }
-            '\n' | '\r' | '\t' | ' ' | '\x0C' | '/' | '(' | ')' | '<' | '>' | '[' | ']' | '{' | '}' | '%' => {
+            b'\n' | b'\r' | b'\t' | b' ' | b'\x0C' | b'/' | b'(' | b')' | b'<' | b'>' | b'[' | b']' | b'{' | b'}' | b'%' => {
                 // unescaped whitespace and unescaped delimiters ends the name
                 return Done(input.slice(idx..), input.slice(0..idx));
             }
-            '\x21' ... '\x7e' => {
+            b'\x21' ... b'\x7e' => {
                 // glam!
             }
             _ => {
@@ -692,6 +685,8 @@ named!(pub name_object<&[u8],Vec<u8>>,
     map_res!( recognize_name_object, byte_vec_from_name_object )
 );
 
+// null object § 7.3.9
+
 named!(pub recognize_null_object<&[u8],&[u8]>,
     recognize!(tag!(b"null"))
 );
@@ -702,6 +697,8 @@ named!(pub null_object<&[u8],PdfObject>,
         (PdfObject::Null)
     )
 );
+
+// indirect references § 7.3.10
 
 // surely there's a better way...
 named!(non_zero_positive_int_not_padded<&[u8], &[u8] >,
@@ -761,6 +758,115 @@ named!(pub indirect_reference<&[u8],PdfObject>,
         )
     )
 );
+
+// array object § 7.3.6
+
+
+named!(recognize_some_ws<&[u8],&[u8]>,
+    recognize!(
+        take_while!(is_pdf_whitespace)
+    )
+);
+
+fn skip_whitespace(input: &[u8]) -> usize {
+    let ws_iresult = recognize_some_ws(input);
+    match ws_iresult {
+        Done(_, recognized) => {
+            return recognized.len();
+        },
+        _ => {
+            return 0;
+        }
+    }
+}
+
+pub fn recognize_array_object(input: &[u8]) -> IResult<&[u8], &[u8]>
+{
+    let input_length = input.len();
+
+    if input_length == 0 {
+        return Incomplete(Needed::Unknown);
+    }
+
+
+    let mut index: usize = 0;
+    let mut inside: bool = false;
+
+    let mut functions: Vec<fn(&[u8]) -> IResult<&[u8], &[u8]> > = Vec::new();
+    functions.push(recognize_indirect_reference);
+    functions.push(recognize_signed_integer);
+    functions.push(recognize_signed_float);
+    functions.push(recognize_null_object);
+    functions.push(recognize_boolean);
+    functions.push(recognize_name_object);
+    functions.push(recognize_comment);
+    functions.push(recognize_hexadecimal_string);
+    functions.push(recognize_literal_string);
+    functions.push(recognize_array_object);
+
+
+    // move forward through input until we Complete an Array at this level,
+    // or get an Error/Incomplete (which return)
+
+    // item-by-item maybe not what we want, but by recognized clump ?
+    // try to recognize what we can for starters
+
+    'outer:
+        while index < input_length {
+
+        // consume optional whitespace preamble
+        if ! inside {
+            index += skip_whitespace(&input[index..]);;
+
+            if input[index] == b'[' {
+                inside = true;
+                index += 1;
+                continue 'outer;
+            } else {
+                // anything not whitespace and not [ isn't an array at this point,
+                // we ought to consume it some other way.
+                return Error(error_position!(ErrorKind::Custom(12345), input))
+            }
+        }
+
+        index += skip_whitespace(&input[index..]);
+
+        if input[index] == b']' {
+            return Done(&input[index+1..], &input[..index+1]);
+        }
+
+        for recognizer in &functions {
+            match (*recognizer)(&input[index..]) {
+                Done( _, recognized ) => {
+                    index += recognized.len();
+                    continue 'outer;
+                },
+                Incomplete(whatever) => {
+                    return Incomplete(whatever);
+                },
+                _ => {
+                    // i think we ignore these til we bail out
+                    // of this regonizers function loop.  it will
+                    // be an error eventually. (right?)
+                }
+            };
+        }
+
+
+        // so its not ending the array, not whitespace, its
+        // not an int, its not a name, not a comment
+        // its not an array.  must be error.
+        // or is it incomplete?  could we complete from wherever we are?
+
+        return Error(error_position!(ErrorKind::Custom(12347), input));
+
+    }
+
+    Incomplete(Needed::Unknown)
+}
+
+
+
 
 #[cfg(test)]
 mod tests {
@@ -1047,6 +1153,14 @@ mod tests {
         nort_13: (b"/#2F".as_bytes(),b"/".as_bytes()),
         nort_14: (b"/".as_bytes(),b"".as_bytes()),
         nort_15: (b"/abcd[".as_bytes(),b"abcd".as_bytes()),
+    }
+
+    #[test]
+    fn test_ws_recognize() {
+        assert_eq!(0, recognize_some_ws(b"a ".as_bytes()).to_result().unwrap().len());
+        assert_eq!(0, recognize_some_ws(b"".as_bytes()).to_result().unwrap().len());
+        assert_eq!(2, recognize_some_ws(b" \t".as_bytes()).to_result().unwrap().len());
+        assert_eq!(9, recognize_some_ws(b" \t \r\n \n \r".as_bytes()).to_result().unwrap().len());
     }
 }
 
