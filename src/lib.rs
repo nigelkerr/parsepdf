@@ -803,6 +803,7 @@ pub fn recognize_array_object(input: &[u8]) -> IResult<&[u8], &[u8]>
     functions.push(recognize_hexadecimal_string);
     functions.push(recognize_literal_string);
     functions.push(recognize_array_object);
+    functions.push(recognize_dictionary_object);
 
 
     // move forward through input until we Complete an Array at this level,
@@ -865,6 +866,133 @@ pub fn recognize_array_object(input: &[u8]) -> IResult<&[u8], &[u8]>
     Incomplete(Needed::Unknown)
 }
 
+// FIXME: something that builds on recognizing to return an array structure.
+
+// dictionary and probably also stream § 7.3.7 and 7.3.8
+// recognizer first
+
+pub fn recognize_dictionary_object(input: &[u8]) -> IResult<&[u8], &[u8]>
+{
+    let input_length = input.len();
+
+    if input_length == 0 {
+        return Incomplete(Needed::Unknown);
+    }
+
+
+    let mut index: usize = 0;
+    let mut inside: bool = false;
+    let mut expect_name: bool = true;
+
+    let mut name_functions: Vec<fn(&[u8]) -> IResult<&[u8], &[u8]> > = Vec::new();
+    name_functions.push(recognize_name_object);
+
+    let mut functions: Vec<fn(&[u8]) -> IResult<&[u8], &[u8]> > = Vec::new();
+    functions.push(recognize_indirect_reference);
+    functions.push(recognize_signed_integer);
+    functions.push(recognize_signed_float);
+    functions.push(recognize_null_object);
+    functions.push(recognize_boolean);
+    functions.push(recognize_name_object);
+    functions.push(recognize_hexadecimal_string);
+    functions.push(recognize_literal_string);
+    functions.push(recognize_array_object);
+    functions.push(recognize_dictionary_object);
+
+
+    // move forward through input until we Complete an Array at this level,
+    // or get an Error/Incomplete (which return)
+
+    // item-by-item maybe not what we want, but by recognized clump ?
+    // try to recognize what we can for starters
+
+    'outer:
+        while index < input_length {
+
+        // consume optional whitespace preamble
+        if ! inside {
+            index += skip_whitespace(&input[index..]);;
+
+            if input[index] == b'<' && input[index+1] == b'<' {
+                inside = true;
+                index += 2;
+                continue 'outer;
+            } else {
+                // anything not whitespace and not [ isn't an array at this point,
+                // we ought to consume it some other way.
+                return Error(error_position!(ErrorKind::Custom(12345), input))
+            }
+        }
+
+        index += skip_whitespace(&input[index..]);
+
+        if input[index] == b'>' && input[index+1] == b'>' {
+            return Done(&input[index+2..], &input[..index+2]);
+        }
+
+        match recognize_comment(&input[index..]) {
+            Done(_, recognized) => {
+                index += recognized.len();
+                continue 'outer;
+            },
+            Incomplete(whatever) => {
+                return Incomplete(whatever);
+            },
+            _ => {
+                // keep going, we'll fall through all the options eventually.
+            }
+        }
+
+        if expect_name {
+            for recognizer in &name_functions {
+                match (*recognizer)(&input[index..]) {
+                    Done(_, recognized) => {
+                        index += recognized.len();
+                        expect_name = ! expect_name;
+                        continue 'outer;
+                    },
+                    Incomplete(whatever) => {
+                        return Incomplete(whatever);
+                    },
+                    _ => {
+                        // i think we ignore these til we bail out
+                        // of this recognizers function loop.  it will
+                        // be an error eventually. (right?)
+                    }
+                };
+            }
+        } else {
+            for recognizer in &functions {
+                match (*recognizer)(&input[index..]) {
+                    Done(_, recognized) => {
+                        index += recognized.len();
+                        expect_name = ! expect_name;
+                        continue 'outer;
+                    },
+                    Incomplete(whatever) => {
+                        return Incomplete(whatever);
+                    },
+                    _ => {
+                        // i think we ignore these til we bail out
+                        // of this recognizers function loop.  it will
+                        // be an error eventually. (right?)
+                    }
+                };
+            }
+        }
+
+
+        // so its not ending the array, not whitespace, its
+        // not an int, its not a name, not a comment
+        // its not an array.  must be error.
+        // or is it incomplete?  could we complete from wherever we are?
+
+        return Error(error_position!(ErrorKind::Custom(12347), input));
+
+    }
+
+    Incomplete(Needed::Unknown)
+}
 
 
 
@@ -1161,6 +1289,34 @@ mod tests {
         assert_eq!(0, recognize_some_ws(b"".as_bytes()).to_result().unwrap().len());
         assert_eq!(2, recognize_some_ws(b" \t".as_bytes()).to_result().unwrap().len());
         assert_eq!(9, recognize_some_ws(b" \t \r\n \n \r".as_bytes()).to_result().unwrap().len());
+    }
+
+
+    macro_rules! recognized_array_object_test {
+        ($($name:ident: $value:expr,)*) => {
+            $(
+                #[test]
+                fn $name() {
+                    let (input, expected) = $value;
+                    assert_eq!(recognize_array_object(input.as_bytes()).to_result().unwrap().len(),
+                        expected);
+                }
+            )*
+        }
+    }
+    recognized_array_object_test! {
+        raot_1: (b"[1 2 3]", 7),
+        raot_2: (b"[1 2 [3]]", 9),
+        raot_3: (b"[1 2[3]]", 8),
+
+        raot_5: (b"[/1 2[3]]", 9),
+        raot_6: (b"[/12[3]] ]", 10),
+        raot_7: (b"[/12 [3]]", 9),
+
+        raot_8: (b"[       /12 \n1\r\r2    [ ] ]", 29),
+
+        raot_9: (b"[1%yo\r %yo\n2%hiya\r\n [3]]", 24),
+        raot_10: (b"[%yo\r1%yo\r %yo\n2%hiya\r\n [3]]", 28),
     }
 }
 
