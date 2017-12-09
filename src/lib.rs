@@ -279,6 +279,8 @@ pub fn recognize_literal_string(input: &[u8]) -> IResult<&[u8], &[u8]>
         return Incomplete(Needed::Unknown);
     }
 
+    let mut index: usize = 0;
+
     // what depth of balanced unescaped parens are we at?
     // starts our iteration at 0, and it ought to be 0
     // when we end (so, the delimiting paren is the first
@@ -295,11 +297,21 @@ pub fn recognize_literal_string(input: &[u8]) -> IResult<&[u8], &[u8]>
     let mut current_octal_value: i32 = -1;
     let mut number_octal_digits: usize = 0;
 
-    for (idx, item) in input.iter_indices() {
-        let chr = *item;
+    'outer:
+        while index < input_length {
+        if parens_depth == 0 {
+            index += skip_whitespace(&input[index..]);
+            if input[index] == b'(' {
+                parens_depth += 1;
+                index += 1;
+                continue 'outer;
+            } else {
+                return Error(error_position!(ErrorKind::Custom(23456),input));
+            }
+        }
 
         if was_escape_char {
-            match chr {
+            match input[index] {
                 b'\n' | b'\r' => {
                     // glam! we care more on deserializing
                 }
@@ -308,7 +320,7 @@ pub fn recognize_literal_string(input: &[u8]) -> IResult<&[u8], &[u8]>
                 }
                 b'0' | b'1' | b'2' | b'3' | b'4' | b'5' | b'6' | b'7' => {
                     number_octal_digits = 1;
-                    current_octal_value = (chr - b'0') as i32;
+                    current_octal_value = (input[index] - b'0') as i32;
                 }
                 _ => {
                     // anything outside the above gets us an error
@@ -316,15 +328,17 @@ pub fn recognize_literal_string(input: &[u8]) -> IResult<&[u8], &[u8]>
                 }
             }
             was_escape_char = false;
-            continue;
+            index += 1;
+            continue 'outer;
         }
 
         if number_octal_digits > 0 {
             if could_have_more_octal_digits(current_octal_value, number_octal_digits) &&
-                (chr >= b'0' && b'7' <= chr) {
+                (input[index] >= b'0' && b'7' <= input[index]) {
                 number_octal_digits += 1;
-                current_octal_value = (current_octal_value << 3) + (chr - b'0') as i32;
-                continue;
+                current_octal_value = (current_octal_value << 3) + (input[index] - b'0') as i32;
+                index += 1;
+                continue 'outer;
             } else {
                 // glam! reset octal
                 number_octal_digits = 0;
@@ -332,14 +346,14 @@ pub fn recognize_literal_string(input: &[u8]) -> IResult<&[u8], &[u8]>
             }
         }
 
-        match chr {
+        match input[index] {
             b'(' => {
                 parens_depth += 1;
             }
             b')' => {
                 parens_depth -= 1;
                 if parens_depth == 0 {
-                    return Done(input.slice(idx + 1..), input.slice(0..idx + 1));
+                    return Done(input.slice(index + 1..), input.slice(0..index + 1));
                 }
             }
             b'\\' => {
@@ -349,6 +363,10 @@ pub fn recognize_literal_string(input: &[u8]) -> IResult<&[u8], &[u8]>
                 // glam! arbitrary 8-bit values accepted here.
             }
         }
+        index += 1;
+
+
+
     }
 
     // i can see how we could get here with the _ branch, but
@@ -759,6 +777,15 @@ named!(pub indirect_reference<&[u8],PdfObject>,
     )
 );
 
+named!(pub recognize_disambiguate_signed_integer_vs_indirect_reference<&[u8],&[u8]>,
+    recognize!(
+        alt!(
+            complete!( recognize_indirect_reference ) |
+            complete!( recognize_signed_integer )
+        )
+    )
+);
+
 // array object § 7.3.6
 
 
@@ -773,7 +800,7 @@ fn skip_whitespace(input: &[u8]) -> usize {
     match ws_iresult {
         Done(_, recognized) => {
             return recognized.len();
-        },
+        }
         _ => {
             return 0;
         }
@@ -785,6 +812,7 @@ pub fn recognize_array_object(input: &[u8]) -> IResult<&[u8], &[u8]>
     let input_length = input.len();
 
     if input_length == 0 {
+        println!("INC at start");
         return Incomplete(Needed::Unknown);
     }
 
@@ -792,9 +820,10 @@ pub fn recognize_array_object(input: &[u8]) -> IResult<&[u8], &[u8]>
     let mut index: usize = 0;
     let mut inside: bool = false;
 
-    let mut functions: Vec<fn(&[u8]) -> IResult<&[u8], &[u8]> > = Vec::new();
-    functions.push(recognize_indirect_reference);
-    functions.push(recognize_signed_integer);
+    let mut functions: Vec<fn(&[u8]) -> IResult<&[u8], &[u8]>> = Vec::new();
+//    functions.push(recognize_indirect_reference);
+//    functions.push(recognize_signed_integer);
+    functions.push(recognize_disambiguate_signed_integer_vs_indirect_reference);
     functions.push(recognize_signed_float);
     functions.push(recognize_null_object);
     functions.push(recognize_boolean);
@@ -816,8 +845,8 @@ pub fn recognize_array_object(input: &[u8]) -> IResult<&[u8], &[u8]>
         while index < input_length {
 
         // consume optional whitespace preamble
-        if ! inside {
-            index += skip_whitespace(&input[index..]);;
+        if !inside {
+            index += skip_whitespace(&input[index..]);
 
             if input[index] == b'[' {
                 inside = true;
@@ -826,31 +855,35 @@ pub fn recognize_array_object(input: &[u8]) -> IResult<&[u8], &[u8]>
             } else {
                 // anything not whitespace and not [ isn't an array at this point,
                 // we ought to consume it some other way.
-                return Error(error_position!(ErrorKind::Custom(12345), input))
+                return Error(error_position!(ErrorKind::Custom(12345), input));
             }
         }
 
         index += skip_whitespace(&input[index..]);
 
         if input[index] == b']' {
-            return Done(&input[index+1..], &input[..index+1]);
+            return Done(&input[index + 1..], &input[..index + 1]);
         }
 
+        let mut iterations = 0;
         for recognizer in &functions {
             match (*recognizer)(&input[index..]) {
-                Done( _, recognized ) => {
+                Done(_, recognized) => {
+                    println!("out at iter {:?}", iterations);
                     index += recognized.len();
                     continue 'outer;
-                },
+                }
                 Incomplete(whatever) => {
+                    println!("INC at iter {:?}", iterations);
                     return Incomplete(whatever);
-                },
+                }
                 _ => {
                     // i think we ignore these til we bail out
                     // of this regonizers function loop.  it will
                     // be an error eventually. (right?)
                 }
             };
+            iterations += 1;
         }
 
 
@@ -860,9 +893,9 @@ pub fn recognize_array_object(input: &[u8]) -> IResult<&[u8], &[u8]>
         // or is it incomplete?  could we complete from wherever we are?
 
         return Error(error_position!(ErrorKind::Custom(12347), input));
-
     }
 
+    println!("INC from end");
     Incomplete(Needed::Unknown)
 }
 
@@ -884,12 +917,13 @@ pub fn recognize_dictionary_object(input: &[u8]) -> IResult<&[u8], &[u8]>
     let mut inside: bool = false;
     let mut expect_name: bool = true;
 
-    let mut name_functions: Vec<fn(&[u8]) -> IResult<&[u8], &[u8]> > = Vec::new();
+    let mut name_functions: Vec<fn(&[u8]) -> IResult<&[u8], &[u8]>> = Vec::new();
     name_functions.push(recognize_name_object);
 
-    let mut functions: Vec<fn(&[u8]) -> IResult<&[u8], &[u8]> > = Vec::new();
-    functions.push(recognize_indirect_reference);
-    functions.push(recognize_signed_integer);
+    let mut functions: Vec<fn(&[u8]) -> IResult<&[u8], &[u8]>> = Vec::new();
+//    functions.push(recognize_indirect_reference);
+//    functions.push(recognize_signed_integer);
+    functions.push(recognize_disambiguate_signed_integer_vs_indirect_reference);
     functions.push(recognize_signed_float);
     functions.push(recognize_null_object);
     functions.push(recognize_boolean);
@@ -910,34 +944,35 @@ pub fn recognize_dictionary_object(input: &[u8]) -> IResult<&[u8], &[u8]>
         while index < input_length {
 
         // consume optional whitespace preamble
-        if ! inside {
-            index += skip_whitespace(&input[index..]);;
+        if !inside {
+            index += skip_whitespace(&input[index..]);
+            ;
 
-            if input[index] == b'<' && input[index+1] == b'<' {
+            if input[index] == b'<' && input[index + 1] == b'<' {
                 inside = true;
                 index += 2;
                 continue 'outer;
             } else {
                 // anything not whitespace and not [ isn't an array at this point,
                 // we ought to consume it some other way.
-                return Error(error_position!(ErrorKind::Custom(12345), input))
+                return Error(error_position!(ErrorKind::Custom(12345), input));
             }
         }
 
         index += skip_whitespace(&input[index..]);
 
-        if input[index] == b'>' && input[index+1] == b'>' {
-            return Done(&input[index+2..], &input[..index+2]);
+        if input[index] == b'>' && input[index + 1] == b'>' {
+            return Done(&input[index + 2..], &input[..index + 2]);
         }
 
         match recognize_comment(&input[index..]) {
             Done(_, recognized) => {
                 index += recognized.len();
                 continue 'outer;
-            },
+            }
             Incomplete(whatever) => {
                 return Incomplete(whatever);
-            },
+            }
             _ => {
                 // keep going, we'll fall through all the options eventually.
             }
@@ -948,12 +983,12 @@ pub fn recognize_dictionary_object(input: &[u8]) -> IResult<&[u8], &[u8]>
                 match (*recognizer)(&input[index..]) {
                     Done(_, recognized) => {
                         index += recognized.len();
-                        expect_name = ! expect_name;
+                        expect_name = !expect_name;
                         continue 'outer;
-                    },
+                    }
                     Incomplete(whatever) => {
                         return Incomplete(whatever);
-                    },
+                    }
                     _ => {
                         // i think we ignore these til we bail out
                         // of this recognizers function loop.  it will
@@ -966,12 +1001,12 @@ pub fn recognize_dictionary_object(input: &[u8]) -> IResult<&[u8], &[u8]>
                 match (*recognizer)(&input[index..]) {
                     Done(_, recognized) => {
                         index += recognized.len();
-                        expect_name = ! expect_name;
+                        expect_name = !expect_name;
                         continue 'outer;
-                    },
+                    }
                     Incomplete(whatever) => {
                         return Incomplete(whatever);
-                    },
+                    }
                     _ => {
                         // i think we ignore these til we bail out
                         // of this recognizers function loop.  it will
@@ -988,12 +1023,10 @@ pub fn recognize_dictionary_object(input: &[u8]) -> IResult<&[u8], &[u8]>
         // or is it incomplete?  could we complete from wherever we are?
 
         return Error(error_position!(ErrorKind::Custom(12347), input));
-
     }
 
     Incomplete(Needed::Unknown)
 }
-
 
 
 #[cfg(test)]
@@ -1017,8 +1050,8 @@ mod tests {
         match null_object(b"null").to_result().unwrap() {
             PdfObject::Null => {}
             PdfObject::IndirectReference { number: _, version: _ } => {
-                assert_eq!(3,0);
-            },
+                assert_eq!(3, 0);
+            }
         }
         match null_object(b"nul") {
             Incomplete(_) => {}
@@ -1310,13 +1343,18 @@ mod tests {
         raot_3: (b"[1 2[3]]", 8),
 
         raot_5: (b"[/1 2[3]]", 9),
-        raot_6: (b"[/12[3]] ]", 10),
+        raot_6: (b"[/12[3]] ]", 8),
         raot_7: (b"[/12 [3]]", 9),
 
-        raot_8: (b"[       /12 \n1\r\r2    [ ] ]", 29),
+        raot_8: (b"[       /12 \n1\r\r2    [ ] ]", 26),
 
         raot_9: (b"[1%yo\r %yo\n2%hiya\r\n [3]]", 24),
         raot_10: (b"[%yo\r1%yo\r %yo\n2%hiya\r\n [3]]", 28),
+
+        raot_11: (b"[(hiya) /yo 1 2 3]", 18),
+        raot_12: (b"[<09 ab> /yo 1 2 3]", 19),
+        raot_13: (b"[99 0 R /yo 1 2 3]", 18),
+        raot_14: (b"[99 0 R 100 0 R  ]", 18),
     }
 }
 
