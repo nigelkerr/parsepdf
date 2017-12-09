@@ -812,7 +812,6 @@ pub fn recognize_array_object(input: &[u8]) -> IResult<&[u8], &[u8]>
     let input_length = input.len();
 
     if input_length == 0 {
-        println!("INC at start");
         return Incomplete(Needed::Unknown);
     }
 
@@ -821,8 +820,6 @@ pub fn recognize_array_object(input: &[u8]) -> IResult<&[u8], &[u8]>
     let mut inside: bool = false;
 
     let mut functions: Vec<fn(&[u8]) -> IResult<&[u8], &[u8]>> = Vec::new();
-//    functions.push(recognize_indirect_reference);
-//    functions.push(recognize_signed_integer);
     functions.push(recognize_disambiguate_signed_integer_vs_indirect_reference);
     functions.push(recognize_signed_float);
     functions.push(recognize_null_object);
@@ -833,7 +830,6 @@ pub fn recognize_array_object(input: &[u8]) -> IResult<&[u8], &[u8]>
     functions.push(recognize_literal_string);
     functions.push(recognize_array_object);
     functions.push(recognize_dictionary_object);
-
 
     // move forward through input until we Complete an Array at this level,
     // or get an Error/Incomplete (which return)
@@ -865,16 +861,13 @@ pub fn recognize_array_object(input: &[u8]) -> IResult<&[u8], &[u8]>
             return Done(&input[index + 1..], &input[..index + 1]);
         }
 
-        let mut iterations = 0;
         for recognizer in &functions {
             match (*recognizer)(&input[index..]) {
                 Done(_, recognized) => {
-                    println!("out at iter {:?}", iterations);
                     index += recognized.len();
                     continue 'outer;
                 }
                 Incomplete(whatever) => {
-                    println!("INC at iter {:?}", iterations);
                     return Incomplete(whatever);
                 }
                 _ => {
@@ -883,7 +876,6 @@ pub fn recognize_array_object(input: &[u8]) -> IResult<&[u8], &[u8]>
                     // be an error eventually. (right?)
                 }
             };
-            iterations += 1;
         }
 
 
@@ -895,13 +887,12 @@ pub fn recognize_array_object(input: &[u8]) -> IResult<&[u8], &[u8]>
         return Error(error_position!(ErrorKind::Custom(12347), input));
     }
 
-    println!("INC from end");
     Incomplete(Needed::Unknown)
 }
 
 // FIXME: something that builds on recognizing to return an array structure.
 
-// dictionary and probably also stream § 7.3.7 and 7.3.8
+// dictionary § 7.3.7
 // recognizer first
 
 pub fn recognize_dictionary_object(input: &[u8]) -> IResult<&[u8], &[u8]>
@@ -921,8 +912,6 @@ pub fn recognize_dictionary_object(input: &[u8]) -> IResult<&[u8], &[u8]>
     name_functions.push(recognize_name_object);
 
     let mut functions: Vec<fn(&[u8]) -> IResult<&[u8], &[u8]>> = Vec::new();
-//    functions.push(recognize_indirect_reference);
-//    functions.push(recognize_signed_integer);
     functions.push(recognize_disambiguate_signed_integer_vs_indirect_reference);
     functions.push(recognize_signed_float);
     functions.push(recognize_null_object);
@@ -932,7 +921,6 @@ pub fn recognize_dictionary_object(input: &[u8]) -> IResult<&[u8], &[u8]>
     functions.push(recognize_literal_string);
     functions.push(recognize_array_object);
     functions.push(recognize_dictionary_object);
-
 
     // move forward through input until we Complete an Array at this level,
     // or get an Error/Incomplete (which return)
@@ -953,16 +941,27 @@ pub fn recognize_dictionary_object(input: &[u8]) -> IResult<&[u8], &[u8]>
                 index += 2;
                 continue 'outer;
             } else {
-                // anything not whitespace and not [ isn't an array at this point,
+                // anything not whitespace and not < isn't a dict at this point,
                 // we ought to consume it some other way.
-                return Error(error_position!(ErrorKind::Custom(12345), input));
+                return Error(error_position!(ErrorKind::Custom(34567), input));
             }
         }
 
         index += skip_whitespace(&input[index..]);
 
         if input[index] == b'>' && input[index + 1] == b'>' {
-            return Done(&input[index + 2..], &input[..index + 2]);
+
+            // do we expect the next object to be a name?
+            // that is, have we consumed complete name-value pairs thus
+            // far and would be looking to start a new pair if we
+            // weren't ending here?
+            if expect_name {
+                return Done(&input[index + 2..], &input[..index + 2]);
+            } else {
+                // if we were expecting a value, we're error
+                return Error(error_position!(ErrorKind::Custom(34569), input));
+            }
+
         }
 
         match recognize_comment(&input[index..]) {
@@ -1017,16 +1016,21 @@ pub fn recognize_dictionary_object(input: &[u8]) -> IResult<&[u8], &[u8]>
         }
 
 
-        // so its not ending the array, not whitespace, its
+        // so its not ending the dict, not whitespace, its
         // not an int, its not a name, not a comment
-        // its not an array.  must be error.
+        // its not an array or another dict.  must be error.
         // or is it incomplete?  could we complete from wherever we are?
 
-        return Error(error_position!(ErrorKind::Custom(12347), input));
+        return Error(error_position!(ErrorKind::Custom(34568), input));
     }
 
     Incomplete(Needed::Unknown)
 }
+
+
+// Stream objects § 7.3.8
+// these are a Dictionary that must have a /Length value, and the stream..endstream after it
+
 
 
 #[cfg(test)]
@@ -1355,6 +1359,43 @@ mod tests {
         raot_12: (b"[<09 ab> /yo 1 2 3]", 19),
         raot_13: (b"[99 0 R /yo 1 2 3]", 18),
         raot_14: (b"[99 0 R 100 0 R  ]", 18),
+        raot_15: (b"[<</a[1 2 3]>> <</b 1 2 R>>]", 28),
     }
+
+    macro_rules! recognized_dict_object_test {
+        ($($name:ident: $value:expr,)*) => {
+            $(
+                #[test]
+                fn $name() {
+                    let (input, expected) = $value;
+                    assert_eq!(recognize_dictionary_object(input.as_bytes()).to_result().unwrap().len(),
+                        expected);
+                }
+            )*
+        }
+    }
+
+    recognized_dict_object_test! {
+        rd_1: (b"<< >>", 5),
+        rd_2: (b"<</yo%yo\n1>>", 12),
+        rd_3: (b"<</a<</a<</a [1]>>>>>>", 22),
+        rd_4: (b"<</a<</a<</a 1>>>>>>", 20),
+        rd_5: (b"<</a<</a<abcdef>>>>>", 20),
+        rd_6: (b"<</a<</a%yo\n<abcdef>>>>>", 24),
+    }
+
+    #[test]
+    fn test_recognized_dict_object_errors () {
+
+        assert_eq!(
+            nom::Err::Position(nom::ErrorKind::Custom(34569), b"<</yo%yo\n >>".as_bytes()),
+            recognize_dictionary_object(b"<</yo%yo\n >>".as_bytes()).to_result().unwrap_err()
+        );
+        assert_eq!(
+            nom::Err::Position(nom::ErrorKind::Custom(34569), b"<</yo>>".as_bytes()),
+            recognize_dictionary_object(b"<</yo>>".as_bytes()).to_result().unwrap_err()
+        );
+    }
+
 }
 
