@@ -24,34 +24,9 @@ pub enum PdfObject {
     IndirectReference { number: u32, version: u32 }
 }
 
-// which of these is better?  how will i figure that out?
-
-named!(pub pdf_line_ending_by_macro<&[u8],&[u8]>,
-    alt!(
-        complete!(tag!(b"\r\n")) |
-        complete!(tag!(b"\r")) |
-        complete!(tag!(b"\n"))
-    )
-);
-
-pub fn pdf_line_ending(input: &[u8]) -> nom::IResult<&[u8], &[u8]> {
-    // this here _ => is amounting to the complete! behavior above, it seems.
-    match input.compare("\r\n") {
-        CompareResult::Ok => Done(input.slice(2..), input.slice(0..2)),
-        _ => match input.compare("\r") {
-            CompareResult::Ok => Done(input.slice(1..), input.slice(0..1)),
-            _ => match input.compare("\n") {
-                CompareResult::Ok => Done(input.slice(1..), input.slice(0..1)),
-                _ => Error(error_position!(ErrorKind::CrLf, input)),
-            }
-        }
-    }
-}
-
-#[inline]
-pub fn is_not_line_end_chars(chr: u8) -> bool {
-    (chr != b'\n' && chr != b'\r')
-}
+mod simple;
+use simple::pdf_line_ending_by_macro;
+use simple::is_not_line_end_chars;
 
 // comments are going to by my undoing, given where all they can occur ( § 7.2.4 )
 
@@ -60,7 +35,7 @@ named!(pub recognize_comment<&[u8],&[u8]>,
         tuple!(
             tag!(b"%"),
             take_while!( is_not_line_end_chars ),
-            pdf_line_ending
+            pdf_line_ending_by_macro
         )
     )
 );
@@ -1084,13 +1059,6 @@ mod tests {
                    pdf_magic(b"blah").to_result().unwrap_err());
         assert_eq!(nom::Err::Position(nom::ErrorKind::Alt, &[51u8, 46u8, 48u8, 13u8][..]),
                    pdf_magic(b"%PDF-3.0\r").to_result().unwrap_err());
-    }
-
-    #[test]
-    fn pdf_linendings_test() {
-        assert_eq!(b"\r".as_bytes(), pdf_line_ending(b"\rdd".as_bytes()).to_result().unwrap());
-        assert_eq!(b"\r\n".as_bytes(), pdf_line_ending(b"\r\ndd".as_bytes()).to_result().unwrap());
-        assert_eq!(b"\n".as_bytes(), pdf_line_ending(b"\ndd".as_bytes()).to_result().unwrap());
     }
 
     #[test]
