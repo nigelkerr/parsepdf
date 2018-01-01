@@ -2,6 +2,7 @@
 extern crate nom;
 #[macro_use]
 extern crate approx;
+extern crate regex;
 
 use nom::*;
 use nom::digit;
@@ -19,17 +20,7 @@ pub use simple::*;
 pub use structs::*;
 
 named!(pdf_version<&[u8],&[u8]>,
-    alt!(
-        tag!(b"1.0") |
-        tag!(b"1.1") |
-        tag!(b"1.2") |
-        tag!(b"1.3") |
-        tag!(b"1.4") |
-        tag!(b"1.5") |
-        tag!(b"1.6") |
-        tag!(b"1.7") |
-        tag!(b"2.0")
-    )
+    re_bytes_find!("(1\\.[01234567]|2\\.0)")
 );
 
 named!(pub pdf_magic<&[u8],PdfVersion>,
@@ -405,7 +396,7 @@ mod tests {
         assert_eq!(PdfVersion::Known { ver: b"1.0".to_vec() }, pdf_magic(b"%PDF-1.0\r\n").to_result().unwrap());
         assert_eq!(nom::Err::Position(nom::ErrorKind::Tag, &[98u8, 108u8, 97u8, 104u8][..]),
                    pdf_magic(b"blah").to_result().unwrap_err());
-        assert_eq!(nom::Err::Position(nom::ErrorKind::Alt, &[51u8, 46u8, 48u8, 13u8][..]),
+        assert_eq!(nom::Err::Code(nom::ErrorKind::RegexpFind),
                    pdf_magic(b"%PDF-3.0\r").to_result().unwrap_err());
     }
 
