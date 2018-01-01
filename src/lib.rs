@@ -681,49 +681,38 @@ mod tests {
 
     #[test]
     fn hexadecimal_string_test() {
-        assert_eq!(
-            b"abcdef0123456789".as_bytes(),
-            maybe_hexadecimal_string(b"<abcdef0123456789>".as_bytes()).to_result().unwrap()
-        );
-
-        assert_eq!(
-            b"abc def0123\n456789 ".as_bytes(),
-            maybe_hexadecimal_string(b"<abc def0123\n456789 >".as_bytes()).to_result().unwrap()
-        );
 
         assert_eq!(
             nom::Err::Position(nom::ErrorKind::Tag, &[45u8, 62u8][..]),
-            maybe_hexadecimal_string(b"<a->".as_bytes()).to_result().unwrap_err()
+            hexadecimal_string(b"<a->".as_bytes()).to_result().unwrap_err()
         );
 
-        assert_eq!(
-            vec![0xab],
-            hexadecimal_string(b"<ab>".as_bytes()).to_result().unwrap()
-        );
-
-        assert_eq!(
-            vec![0xab, 0xcd, 0xef],
-            hexadecimal_string(b"<ab cd\nef>".as_bytes()).to_result().unwrap()
-        );
-
-        assert_eq!(
-            vec![0xab, 0xcd, 0xef, 0x10],
-            hexadecimal_string(b"<ab cd\nef1>".as_bytes()).to_result().unwrap()
-        );
     }
-
-
-    macro_rules! lsrt {
+    macro_rules! hexst {
         ($($name:ident: $value:expr,)*) => {
             $(
                 #[test]
                 fn $name() {
-                    let expected = $value;
-                    assert_eq!(expected,
-                        recognize_literal_string(expected).to_result().unwrap());
+                    let (input, expected) = $value;
+                    match hexadecimal_string(input).to_result().unwrap() {
+                        PdfObject::String(v) => {
+                            assert_eq!( v, expected );
+                        },
+                        _ => {
+                            assert_eq!(7,0);
+                        }
+                    }
                 }
             )*
         }
+    }
+    hexst! {
+        hx1: (b"<abcdef0123456789>", vec![0xab, 0xcd, 0xef, 0x01, 0x23, 0x45, 0x67, 0x89]),
+        hx2: (b"<abc def0123\n456789 >", vec![0xab, 0xcd, 0xef, 0x01, 0x23, 0x45, 0x67, 0x89]),
+        hx3: (b"<ab>", vec![0xab]),
+        hx3a: (b"<a\rb>", vec![0xab]),
+        hx4: (b"<a>", vec![0xa0]),
+        hx5: (b"<ab cd\nef1>", vec![0xab, 0xcd, 0xef, 0x10]),
     }
 
     macro_rules! lsit {
@@ -733,7 +722,7 @@ mod tests {
                 fn $name() {
                     let (input, expected) = $value;
                     assert_eq!(expected,
-                        recognize_literal_string(input).unwrap_inc());
+                        literal_string(input).unwrap_inc());
                 }
             )*
         }
@@ -747,33 +736,13 @@ mod tests {
                 fn $name() {
                     let (input, expected) = $value;
                     assert_eq!(expected,
-                        recognize_literal_string(input));
+                        literal_string(input));
                 }
             )*
         }
     }
 
 
-    lsrt! {
-        lsrt_2: b"(a)".as_bytes(),
-        lsrt_3: b"(This is a string)".as_bytes(),
-        lsrt_4: b"(Strings can contain newlines\nand such.)".as_bytes(),
-        lsrt_5: b"(Strings can contain balanced parentheses ()\nand special characters ( * ! & } ^ %and so on) .)".as_bytes(),
-        lsrt_6: b"(The following is an empty string .)".as_bytes(),
-        lsrt_7: b"()".as_bytes(),
-        lsrt_8: b"(It has zero (0) length.)".as_bytes(),
-
-        // but we wont test equivalence til we deserialize...
-        lsrt_9: b"(These \\\rtwo strings \\\nare the same.)".as_bytes(),
-        lsrt_a: b"(These two strings are the same.)".as_bytes(),
-
-        lsrt_b: b"(This string has an end-of-line at the end of it.\n)".as_bytes(),
-        lsrt_c: b"(So does this one.\\n)".as_bytes(),
-        lsrt_d: b"(This string contains \\245two octal characters\\307.)".as_bytes(),
-        lsrt_e: b"(\\0053)".as_bytes(),
-        lsrt_f: b"(\\053)".as_bytes(),
-        lsrt_g: b"(\\53)".as_bytes(),
-    }
 
     lsit! {
         lsit_1: (b"(abcde".as_bytes(), Needed::Unknown),
@@ -791,38 +760,42 @@ mod tests {
                 #[test]
                 fn $name() {
                     let (input, expected) = $value;
-                    assert_eq!(
-                        literal_string(input).to_result().unwrap(),
-                        expected
-                    );
+                    match literal_string(input).to_result().unwrap() {
+                        PdfObject::String(v) => {
+                            assert_eq!(expected, v);
+                        },
+                        _ => {
+                            assert_eq!(9,0);
+                        }
+                    }
                 }
             )*
         }
     }
 
     tlsr! {
-        tlsr_0: (b"(abcd)".as_bytes(), b"abcd".as_bytes()),
-        tlsr_1: (b"(\\247)".as_bytes(), b"\xA7".as_bytes()),
+        tlsr_0: (b"(abcd)".as_bytes(), b"abcd"[..].to_owned()),
+        tlsr_1: (b"(\\247)".as_bytes(), b"\xA7"[..].to_owned()),
 
-        tlsr_2: (b"(a)".as_bytes(), b"a".as_bytes()),
-        tlsr_3: (b"(This is a string)".as_bytes(), b"This is a string".as_bytes()),
-        tlsr_4: (b"(Strings can contain newlines\nand such.)".as_bytes(), b"Strings can contain newlines\nand such.".as_bytes()),
+        tlsr_2: (b"(a)".as_bytes(), b"a"[..].to_owned()),
+        tlsr_3: (b"(This is a string)".as_bytes(), b"This is a string"[..].to_owned()),
+        tlsr_4: (b"(Strings can contain newlines\nand such.)".as_bytes(), b"Strings can contain newlines\nand such."[..].to_owned()),
         tlsr_5: (b"(Strings can contain balanced parentheses ()\nand special characters ( * ! & } ^ %and so on) .)".as_bytes(),
-                    b"Strings can contain balanced parentheses ()\nand special characters ( * ! & } ^ %and so on) .".as_bytes()),
-        tlsr_6: (b"(The following is an empty string .)".as_bytes(), b"The following is an empty string .".as_bytes()),
-        tlsr_7: (b"()".as_bytes(), b"".as_bytes()),
-        tlsr_8: (b"(It has zero (0) length.)".as_bytes(), b"It has zero (0) length.".as_bytes()),
+                    b"Strings can contain balanced parentheses ()\nand special characters ( * ! & } ^ %and so on) ."[..].to_owned()),
+        tlsr_6: (b"(The following is an empty string .)".as_bytes(), b"The following is an empty string ."[..].to_owned()),
+        tlsr_7: (b"()".as_bytes(), b""[..].to_owned()),
+        tlsr_8: (b"(It has zero (0) length.)".as_bytes(), b"It has zero (0) length."[..].to_owned()),
 
-        tlsr_9: (b"(These \\\rtwo strings \\\nare the same.)".as_bytes(), b"These two strings are the same.".as_bytes()),
-        tlsr_a: (b"(These two strings are the same.)".as_bytes(), b"These two strings are the same.".as_bytes()),
+        tlsr_9: (b"(These \\\rtwo strings \\\nare the same.)".as_bytes(), b"These two strings are the same."[..].to_owned()),
+        tlsr_a: (b"(These two strings are the same.)".as_bytes(), b"These two strings are the same."[..].to_owned()),
 
-        tlsr_b: (b"(This string has an end-of-line at the end of it.\n)".as_bytes(), b"This string has an end-of-line at the end of it.\n".as_bytes()),
-        tlsr_c: (b"(So does this one.\\n)".as_bytes(), b"So does this one.\n".as_bytes()),
-        tlsr_d: (b"(This string contains \\245two octal characters\\307.)".as_bytes(), b"This string contains \xA5two octal characters\xC7.".as_bytes()),
-        tlsr_e: (b"(\\0053)".as_bytes(), b"\x053".as_bytes()),
-        tlsr_f: (b"(\\053)".as_bytes(), b"\x2B".as_bytes()),
-        tlsr_g: (b"(\\53)".as_bytes(), b"\x2B".as_bytes()),
-        tlsr_h: (b"(\\533)".as_bytes(), b"\x2B3".as_bytes()),
+        tlsr_b: (b"(This string has an end-of-line at the end of it.\n)".as_bytes(), b"This string has an end-of-line at the end of it.\n"[..].to_owned()),
+        tlsr_c: (b"(So does this one.\\n)".as_bytes(), b"So does this one.\n"[..].to_owned()),
+        tlsr_d: (b"(This string contains \\245two octal characters\\307.)".as_bytes(), b"This string contains \xA5two octal characters\xC7."[..].to_owned()),
+        tlsr_e: (b"(\\0053)".as_bytes(), b"\x053"[..].to_owned()),
+        tlsr_f: (b"(\\053)".as_bytes(), b"+"[..].to_owned()),
+        tlsr_g: (b"(\\53)".as_bytes(), b"+"[..].to_owned()),
+        tlsr_h: (b"(\\533)".as_bytes(), b"+3"[..].to_owned()),
     }
 
     macro_rules! name_object_result_test {

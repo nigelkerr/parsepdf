@@ -204,7 +204,7 @@ fn byte_vec_from_hexadecimal_string(input: &[u8]) -> Result<Vec<u8>, nom::ErrorK
     Ok(result)
 }
 
-named!(pub hexadecimal_string<&[u8],Vec<u8>>,
+named!(pub hexadecimal_string<&[u8],PdfObject>,
     do_parse!(
         v: map_res!( maybe_hexadecimal_string, byte_vec_from_hexadecimal_string)
         >>
@@ -481,7 +481,7 @@ fn byte_vec_from_literal_string(input: &[u8]) -> Result<Vec<u8>, nom::ErrorKind>
     Ok(result)
 }
 
-named!(pub literal_string<&[u8],Vec<u8>>,
+named!(pub literal_string<&[u8],PdfObject>,
     do_parse!(
         v: map_res!( recognize_literal_string, byte_vec_from_literal_string )
         >>
