@@ -21,5 +21,6 @@ pub enum PdfObject {
     Float (f64),
     Comment ( Vec<u8> ),
     String ( Vec<u8> ),
+    Name( Vec<u8> ),
     IndirectReference { number: u32, generation: u32 },
 }

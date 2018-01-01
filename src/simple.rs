@@ -488,3 +488,207 @@ named!(pub literal_string<&[u8],PdfObject>,
         ( PdfObject::String( v ) )
     )
 );
+
+// null object § 7.3.9
+
+named!(pub recognize_null_object<&[u8],&[u8]>,
+    recognize!(tag!(b"null"))
+);
+
+named!(pub null_object<&[u8],PdfObject>,
+    do_parse!(
+        recognize_null_object >>
+        (PdfObject::Null)
+    )
+);
+
+// § 7.3.5 Name objects
+
+/// recognize a Name object, returning the sequence of the entire Name
+/// object and its leading /.
+pub fn recognize_name_object(input: &[u8]) -> IResult<&[u8], &[u8]>
+{
+    let input_length = input.input_len();
+    if input_length == 0 {
+        return Incomplete(Needed::Unknown);
+    }
+
+    //
+    let mut first_iteration: bool = true;
+
+    // was the previous character the number_sign, after which
+    // we should expect exactly two hex digits ?
+    let mut was_number_sign: bool = false;
+    let mut count_hex_digits: usize = 0;
+    let mut current_hex_value: u8 = 0;
+
+    for (idx, item) in input.iter_indices() {
+        let chr = *item;
+
+        // did we start right?
+        if first_iteration {
+            match chr {
+                b'/' => {
+                    first_iteration = false;
+                    continue;
+                }
+                _ => {
+                    return Error(error_position!(ErrorKind::Custom(7777), input));
+                }
+            }
+        }
+
+        if was_number_sign {
+            match count_hex_digits {
+                0 | 1 => {
+                    match is_hex_digit(chr as u8) {
+                        true => {
+                            current_hex_value = (current_hex_value << 4) + from_hex(chr as u8);
+                            count_hex_digits += 1;
+
+                            if count_hex_digits > 1 {
+                                current_hex_value = 0;
+                                count_hex_digits = 0;
+                                was_number_sign = false;
+                            }
+                            continue;
+                        }
+                        false => {
+                            return Error(error_position!(ErrorKind::Custom(9999), input));
+                        }
+                    }
+                }
+                _ => {
+                    return Error(error_position!(ErrorKind::Custom(8888), input));
+                }
+            }
+        }
+
+        match chr {
+            b'#' => {
+                was_number_sign = true;
+                continue;
+            }
+            b'\x00' => {
+                return Error(error_position!(ErrorKind::Custom(33333), input));
+            }
+            b'\n' | b'\r' | b'\t' | b' ' | b'\x0C' | b'/' | b'(' | b')' | b'<' | b'>' | b'[' | b']' | b'{' | b'}' | b'%' => {
+                // unescaped whitespace and unescaped delimiters ends the name
+                return Done(input.slice(idx..), input.slice(0..idx));
+            }
+            b'\x21' ... b'\x7e' => {
+                // glam!
+            }
+            _ => {
+                // these ought to have been # encoded
+                return Error(error_position!(ErrorKind::Custom(22222), input));
+            }
+        }
+    }
+
+    if was_number_sign {
+        return Incomplete(Needed::Unknown);
+    }
+
+    Done(input.slice(input_length..), input)
+}
+
+fn byte_vec_from_name_object(input: &[u8]) -> Result<Vec<u8>, nom::ErrorKind> {
+    let mut result: Vec<u8> = Vec::new();
+
+    let input_length = input.input_len();
+    if input_length == 0 {
+        return Err(ErrorKind::Custom(55555));
+    }
+
+    let mut first_iteration: bool = true;
+
+    // was the previous character the number_sign, after which
+    // we should expect exactly two hex digits ?
+    let mut was_escape_char: bool = false;
+    let mut count_hex_digits: usize = 0;
+    let mut current_hex_value: u8 = 0;
+
+    for (_idx, item) in input.iter_indices() {
+        let chr = *item;
+
+        // did we start right?
+        if first_iteration {
+            match chr {
+                b'/' => {
+                    first_iteration = false;
+                    continue;
+                }
+                _ => {
+                    return Err(ErrorKind::Custom(77777));
+                }
+            }
+        }
+
+        if was_escape_char {
+            match count_hex_digits {
+                0 | 1 => {
+                    match is_hex_digit(chr as u8) {
+                        true => {
+                            current_hex_value = (current_hex_value << 4) + from_hex(chr as u8);
+                            count_hex_digits += 1;
+
+                            if count_hex_digits > 1 {
+                                result.push(current_hex_value);
+                                current_hex_value = 0;
+                                count_hex_digits = 0;
+                                was_escape_char = false;
+                            }
+                            continue;
+                        }
+                        false => {
+                            return Err(ErrorKind::Custom(99999));
+                        }
+                    }
+                }
+                _ => {
+                    return Err(ErrorKind::Custom(88888));
+                }
+            }
+        }
+
+        match chr {
+            b'#' => {
+                was_escape_char = true;
+                continue;
+            }
+            b'\x00' => {
+                return Err(ErrorKind::Custom(111111));
+            }
+            b'\n' | b'\r' | b'\t' | b' ' | b'\x0C' | b'/' | b'(' | b')' | b'<' | b'>' | b'[' | b']' | b'{' | b'}' | b'%' => {
+                // unescaped whitespace or delimiters end the name
+                return Ok(result);
+            }
+            b'\x21' ... b'\x7e' => {
+                result.push(chr);
+                // glam!
+            }
+            _ => {
+                // these ought to have been # encoded
+                return Err(ErrorKind::Custom(222222));
+            }
+        }
+    }
+
+    // we expect that we get called only if the recognizer
+    // succeeded, so here it is an error to be dangling.
+    if was_escape_char {
+        return Err(ErrorKind::Custom(66666));
+    }
+
+    Ok(result)
+}
+
+/// return the name itself expanded to un-escaped form
+named!(pub name_object<&[u8],PdfObject>,
+    do_parse!(
+        v: map_res!( recognize_name_object, byte_vec_from_name_object )
+        >>
+        ( PdfObject::Name( v ) )
+    )
+);

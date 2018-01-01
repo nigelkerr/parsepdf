@@ -53,207 +53,6 @@ named!(pub pdf_header<&[u8],PdfVersion>,
 
 
 
-
-// § 7.3.5 Name objects
-
-/// recognize a Name object, returning the sequence of the entire Name
-/// object and its leading /.
-pub fn recognize_name_object(input: &[u8]) -> IResult<&[u8], &[u8]>
-{
-    let input_length = input.input_len();
-    if input_length == 0 {
-        return Incomplete(Needed::Unknown);
-    }
-
-    //
-    let mut first_iteration: bool = true;
-
-    // was the previous character the number_sign, after which
-    // we should expect exactly two hex digits ?
-    let mut was_number_sign: bool = false;
-    let mut count_hex_digits: usize = 0;
-    let mut current_hex_value: u8 = 0;
-
-    for (idx, item) in input.iter_indices() {
-        let chr = *item;
-
-        // did we start right?
-        if first_iteration {
-            match chr {
-                b'/' => {
-                    first_iteration = false;
-                    continue;
-                }
-                _ => {
-                    return Error(error_position!(ErrorKind::Custom(7777), input));
-                }
-            }
-        }
-
-        if was_number_sign {
-            match count_hex_digits {
-                0 | 1 => {
-                    match is_hex_digit(chr as u8) {
-                        true => {
-                            current_hex_value = (current_hex_value << 4) + from_hex(chr as u8);
-                            count_hex_digits += 1;
-
-                            if count_hex_digits > 1 {
-                                current_hex_value = 0;
-                                count_hex_digits = 0;
-                                was_number_sign = false;
-                            }
-                            continue;
-                        }
-                        false => {
-                            return Error(error_position!(ErrorKind::Custom(9999), input));
-                        }
-                    }
-                }
-                _ => {
-                    return Error(error_position!(ErrorKind::Custom(8888), input));
-                }
-            }
-        }
-
-        match chr {
-            b'#' => {
-                was_number_sign = true;
-                continue;
-            }
-            b'\x00' => {
-                return Error(error_position!(ErrorKind::Custom(33333), input));
-            }
-            b'\n' | b'\r' | b'\t' | b' ' | b'\x0C' | b'/' | b'(' | b')' | b'<' | b'>' | b'[' | b']' | b'{' | b'}' | b'%' => {
-                // unescaped whitespace and unescaped delimiters ends the name
-                return Done(input.slice(idx..), input.slice(0..idx));
-            }
-            b'\x21' ... b'\x7e' => {
-                // glam!
-            }
-            _ => {
-                // these ought to have been # encoded
-                return Error(error_position!(ErrorKind::Custom(22222), input));
-            }
-        }
-    }
-
-    if was_number_sign {
-        return Incomplete(Needed::Unknown);
-    }
-
-    Done(input.slice(input_length..), input)
-}
-
-fn byte_vec_from_name_object(input: &[u8]) -> Result<Vec<u8>, nom::ErrorKind> {
-    let mut result: Vec<u8> = Vec::new();
-
-    let input_length = input.input_len();
-    if input_length == 0 {
-        return Err(ErrorKind::Custom(55555));
-    }
-
-    let mut first_iteration: bool = true;
-
-    // was the previous character the number_sign, after which
-    // we should expect exactly two hex digits ?
-    let mut was_escape_char: bool = false;
-    let mut count_hex_digits: usize = 0;
-    let mut current_hex_value: u8 = 0;
-
-    for (_idx, item) in input.iter_indices() {
-        let chr = *item;
-
-        // did we start right?
-        if first_iteration {
-            match chr {
-                b'/' => {
-                    first_iteration = false;
-                    continue;
-                }
-                _ => {
-                    return Err(ErrorKind::Custom(77777));
-                }
-            }
-        }
-
-        if was_escape_char {
-            match count_hex_digits {
-                0 | 1 => {
-                    match is_hex_digit(chr as u8) {
-                        true => {
-                            current_hex_value = (current_hex_value << 4) + from_hex(chr as u8);
-                            count_hex_digits += 1;
-
-                            if count_hex_digits > 1 {
-                                result.push(current_hex_value);
-                                current_hex_value = 0;
-                                count_hex_digits = 0;
-                                was_escape_char = false;
-                            }
-                            continue;
-                        }
-                        false => {
-                            return Err(ErrorKind::Custom(99999));
-                        }
-                    }
-                }
-                _ => {
-                    return Err(ErrorKind::Custom(88888));
-                }
-            }
-        }
-
-        match chr {
-            b'#' => {
-                was_escape_char = true;
-                continue;
-            }
-            b'\x00' => {
-                return Err(ErrorKind::Custom(111111));
-            }
-            b'\n' | b'\r' | b'\t' | b' ' | b'\x0C' | b'/' | b'(' | b')' | b'<' | b'>' | b'[' | b']' | b'{' | b'}' | b'%' => {
-                // unescaped whitespace or delimiters end the name
-                return Ok(result);
-            }
-            b'\x21' ... b'\x7e' => {
-                result.push(chr);
-                // glam!
-            }
-            _ => {
-                // these ought to have been # encoded
-                return Err(ErrorKind::Custom(222222));
-            }
-        }
-    }
-
-    // we expect that we get called only if the recognizer
-    // succeeded, so here it is an error to be dangling.
-    if was_escape_char {
-        return Err(ErrorKind::Custom(66666));
-    }
-
-    Ok(result)
-}
-
-/// return the name itself expanded to un-escaped form
-named!(pub name_object<&[u8],Vec<u8>>,
-    map_res!( recognize_name_object, byte_vec_from_name_object )
-);
-
-// null object § 7.3.9
-
-named!(pub recognize_null_object<&[u8],&[u8]>,
-    recognize!(tag!(b"null"))
-);
-
-named!(pub null_object<&[u8],PdfObject>,
-    do_parse!(
-        recognize_null_object >>
-        (PdfObject::Null)
-    )
-);
-
 // indirect references § 7.3.10
 
 // surely there's a better way...
@@ -722,7 +521,7 @@ mod tests {
                 fn $name() {
                     let (input, expected) = $value;
                     assert_eq!(expected,
-                        literal_string(input).unwrap_inc());
+                        literal_string(input.as_bytes()).unwrap_inc());
                 }
             )*
         }
@@ -736,22 +535,20 @@ mod tests {
                 fn $name() {
                     let (input, expected) = $value;
                     assert_eq!(expected,
-                        literal_string(input));
+                        literal_string(input.as_bytes()));
                 }
             )*
         }
     }
 
-
-
     lsit! {
-        lsit_1: (b"(abcde".as_bytes(), Needed::Unknown),
-        lsit_2: (b"(abc()".as_bytes(), Needed::Unknown),
-        lsit_3: (b"(abc\\".as_bytes(), Needed::Unknown),
+        lsit_1: (b"(abcde", Needed::Unknown),
+        lsit_2: (b"(abc()", Needed::Unknown),
+        lsit_3: (b"(abc\\", Needed::Unknown),
     }
 
     lset! {
-        lset_1: (b"(abc\\80)".as_bytes(), Error(nom::Err::Position(ErrorKind::Custom(3333), b"(abc\\80)".as_bytes()))),
+        lset_1: (b"(abc\\80)", Error(nom::Err::Position(ErrorKind::Custom(3333), b"(abc\\80)".as_bytes()))),
     }
 
     macro_rules! tlsr {
@@ -760,9 +557,9 @@ mod tests {
                 #[test]
                 fn $name() {
                     let (input, expected) = $value;
-                    match literal_string(input).to_result().unwrap() {
+                    match literal_string(input.as_bytes()).to_result().unwrap() {
                         PdfObject::String(v) => {
-                            assert_eq!(expected, v);
+                            assert_eq!(expected[..].to_owned(), v);
                         },
                         _ => {
                             assert_eq!(9,0);
@@ -774,28 +571,28 @@ mod tests {
     }
 
     tlsr! {
-        tlsr_0: (b"(abcd)".as_bytes(), b"abcd"[..].to_owned()),
-        tlsr_1: (b"(\\247)".as_bytes(), b"\xA7"[..].to_owned()),
+        tlsr_0: (b"(abcd)", b"abcd"),
+        tlsr_1: (b"(\\247)", b"\xA7"),
 
-        tlsr_2: (b"(a)".as_bytes(), b"a"[..].to_owned()),
-        tlsr_3: (b"(This is a string)".as_bytes(), b"This is a string"[..].to_owned()),
-        tlsr_4: (b"(Strings can contain newlines\nand such.)".as_bytes(), b"Strings can contain newlines\nand such."[..].to_owned()),
-        tlsr_5: (b"(Strings can contain balanced parentheses ()\nand special characters ( * ! & } ^ %and so on) .)".as_bytes(),
-                    b"Strings can contain balanced parentheses ()\nand special characters ( * ! & } ^ %and so on) ."[..].to_owned()),
-        tlsr_6: (b"(The following is an empty string .)".as_bytes(), b"The following is an empty string ."[..].to_owned()),
-        tlsr_7: (b"()".as_bytes(), b""[..].to_owned()),
-        tlsr_8: (b"(It has zero (0) length.)".as_bytes(), b"It has zero (0) length."[..].to_owned()),
+        tlsr_2: (b"(a)", b"a"),
+        tlsr_3: (b"(This is a string)", b"This is a string"),
+        tlsr_4: (b"(Strings can contain newlines\nand such.)", b"Strings can contain newlines\nand such."),
+        tlsr_5: (b"(Strings can contain balanced parentheses ()\nand special characters ( * ! & } ^ %and so on) .)",
+                    b"Strings can contain balanced parentheses ()\nand special characters ( * ! & } ^ %and so on) ."),
+        tlsr_6: (b"(The following is an empty string .)", b"The following is an empty string ."),
+        tlsr_7: (b"()", b""),
+        tlsr_8: (b"(It has zero (0) length.)", b"It has zero (0) length."),
 
-        tlsr_9: (b"(These \\\rtwo strings \\\nare the same.)".as_bytes(), b"These two strings are the same."[..].to_owned()),
-        tlsr_a: (b"(These two strings are the same.)".as_bytes(), b"These two strings are the same."[..].to_owned()),
+        tlsr_9: (b"(These \\\rtwo strings \\\nare the same.)", b"These two strings are the same."),
+        tlsr_a: (b"(These two strings are the same.)", b"These two strings are the same."),
 
-        tlsr_b: (b"(This string has an end-of-line at the end of it.\n)".as_bytes(), b"This string has an end-of-line at the end of it.\n"[..].to_owned()),
-        tlsr_c: (b"(So does this one.\\n)".as_bytes(), b"So does this one.\n"[..].to_owned()),
-        tlsr_d: (b"(This string contains \\245two octal characters\\307.)".as_bytes(), b"This string contains \xA5two octal characters\xC7."[..].to_owned()),
-        tlsr_e: (b"(\\0053)".as_bytes(), b"\x053"[..].to_owned()),
-        tlsr_f: (b"(\\053)".as_bytes(), b"+"[..].to_owned()),
-        tlsr_g: (b"(\\53)".as_bytes(), b"+"[..].to_owned()),
-        tlsr_h: (b"(\\533)".as_bytes(), b"+3"[..].to_owned()),
+        tlsr_b: (b"(This string has an end-of-line at the end of it.\n)", b"This string has an end-of-line at the end of it.\n"),
+        tlsr_c: (b"(So does this one.\\n)", b"So does this one.\n"),
+        tlsr_d: (b"(This string contains \\245two octal characters\\307.)", b"This string contains \xA5two octal characters\xC7."),
+        tlsr_e: (b"(\\0053)", b"\x053"),
+        tlsr_f: (b"(\\053)", b"+"),
+        tlsr_g: (b"(\\53)", b"+"),
+        tlsr_h: (b"(\\533)", b"+3"),
     }
 
     macro_rules! name_object_result_test {
@@ -804,28 +601,34 @@ mod tests {
                 #[test]
                 fn $name() {
                     let (input, expected) = $value;
-                    assert_eq!(name_object(input).to_result().unwrap(),
-                        expected);
+                    match name_object(input.as_bytes()).to_result().unwrap() {
+                        PdfObject::Name( v ) => {
+                            assert_eq!(expected[..].to_owned(), v);
+                        },
+                        _ => {
+                            assert_eq!(10, 0);
+                        }
+                    }
                 }
             )*
         }
     }
 
     name_object_result_test! {
-        nort_1: (b"/Name1".as_bytes(),b"Name1".as_bytes()),
-        nort_2: (b"/ASomewhatLongerName".as_bytes(),b"ASomewhatLongerName".as_bytes()),
-        nort_3:(b"/A;Name_With-Various***Characters?".as_bytes(),b"A;Name_With-Various***Characters?".as_bytes()),
-        nort_5: (b"/1.2".as_bytes(),b"1.2".as_bytes()),
-        nort_6: (b"/$$".as_bytes(),b"$$".as_bytes()),
-        nort_7: (b"/@pattern".as_bytes(),b"@pattern".as_bytes()),
-        nort_8: (b"/.notdef".as_bytes(),b".notdef".as_bytes()),
-        nort_9: (b"/Lime#20Green".as_bytes(),b"Lime Green".as_bytes()),
-        nort_10: (b"/paired#28#29parentheses".as_bytes(),b"paired()parentheses".as_bytes()),
-        nort_11: (b"/The_Key_of_F#23_Minor".as_bytes(),b"The_Key_of_F#_Minor".as_bytes()),
-        nort_12: (b"/A#42".as_bytes(),b"AB".as_bytes()),
-        nort_13: (b"/#2F".as_bytes(),b"/".as_bytes()),
-        nort_14: (b"/".as_bytes(),b"".as_bytes()),
-        nort_15: (b"/abcd[".as_bytes(),b"abcd".as_bytes()),
+        nort_1: (b"/Name1",b"Name1"),
+        nort_2: (b"/ASomewhatLongerName",b"ASomewhatLongerName"),
+        nort_3:(b"/A;Name_With-Various***Characters?",b"A;Name_With-Various***Characters?"),
+        nort_5: (b"/1.2",b"1.2"),
+        nort_6: (b"/$$",b"$$"),
+        nort_7: (b"/@pattern",b"@pattern"),
+        nort_8: (b"/.notdef",b".notdef"),
+        nort_9: (b"/Lime#20Green",b"Lime Green"),
+        nort_10: (b"/paired#28#29parentheses",b"paired()parentheses"),
+        nort_11: (b"/The_Key_of_F#23_Minor",b"The_Key_of_F#_Minor"),
+        nort_12: (b"/A#42",b"AB"),
+        nort_13: (b"/#2F",b"/"),
+        nort_14: (b"/",b""),
+        nort_15: (b"/abcd[",b"abcd"),
     }
 
     #[test]
