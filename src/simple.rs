@@ -8,6 +8,7 @@ use std::str;
 use std::str::FromStr;
 
 use structs::PdfObject;
+use structs::PdfVersion;
 
 named!(pub pdf_line_ending_by_macro<&[u8],&[u8]>,
     alt!(
@@ -16,6 +17,31 @@ named!(pub pdf_line_ending_by_macro<&[u8],&[u8]>,
         complete!(tag!(b"\n"))
     )
 );
+
+named!(pdf_version<&[u8],&[u8]>,
+    re_bytes_find!("^(1\\.[01234567]|2\\.0)")
+);
+
+named!(pub pdf_magic<&[u8],PdfVersion>,
+    do_parse!(
+        tag!(b"%PDF-") >>
+        ver_bytes: pdf_version >>
+        pdf_line_ending_by_macro >>
+        ( PdfVersion::Known{ ver: ver_bytes.to_vec() } )
+    )
+);
+
+// § 7.5.2
+
+named!(pub pdf_header<&[u8],PdfVersion>,
+    do_parse!(
+        ver: pdf_magic >>
+        opt!( comment ) >>
+        ( ver )
+    )
+);
+
+
 
 #[inline]
 pub fn is_not_line_end_chars(chr: u8) -> bool {
@@ -214,7 +240,7 @@ named!(pub hexadecimal_string<&[u8],PdfObject>,
 
 
 
-// § 7.3.4.2 Literal Strings ugh
+// § 7.3.4.2 Literal Strings
 
 /// given the current state, could we have more octal digits
 /// if we'd had this much octal so far?
@@ -241,122 +267,16 @@ fn could_have_more_octal_digits(v: i32, digits: usize) -> bool {
 /// we're going to need to have a crassly similar loop for
 /// taking this byte-sequence and understanding it as a
 /// character sequence.
-fn recognize_literal_string(input: &[u8]) -> IResult<&[u8], &[u8]>
-{
-    let input_length = input.input_len();
-    if input_length == 0 {
-        return Incomplete(Needed::Unknown);
-    }
 
-    let mut index: usize = 0;
-
-    // what depth of balanced unescaped parens are we at?
-    // starts our iteration at 0, and it ought to be 0
-    // when we end (so, the delimiting paren is the first
-    // and last we encounter and manipulate this variable
-    // for...)
-    let mut parens_depth: usize = 0;
-
-    // did we just see an escaping backslash?
-    let mut was_escape_char: bool = false;
-
-    // how to represent the octals?  we want to accept the
-    // longest valid octal, even in the face of the escape
-    // sequence being followed by other digits
-    let mut current_octal_value: i32 = -1;
-    let mut number_octal_digits: usize = 0;
-
-    'outer:
-        while index < input_length {
-        if parens_depth == 0 {
-            index += skip_whitespace(&input[index..]);
-            if input[index] == b'(' {
-                parens_depth += 1;
-                index += 1;
-                continue 'outer;
-            } else {
-                return Error(error_position!(ErrorKind::Custom(23456),input));
-            }
-        }
-
-        if was_escape_char {
-            match input[index] {
-                b'\n' | b'\r' => {
-                    // glam! we care more on deserializing
-                }
-                b'n' | b'r' | b't' | b'b' | b'f' | b'(' | b')' | b'\\' => {
-                    // glam! we'll do the right thing on deserializing
-                }
-                b'0' | b'1' | b'2' | b'3' | b'4' | b'5' | b'6' | b'7' => {
-                    number_octal_digits = 1;
-                    current_octal_value = (input[index] - b'0') as i32;
-                }
-                _ => {
-                    // anything outside the above gets us an error
-                    return Error(error_position!(ErrorKind::Custom(3333), input));
-                }
-            }
-            was_escape_char = false;
-            index += 1;
-            continue 'outer;
-        }
-
-        if number_octal_digits > 0 {
-            if could_have_more_octal_digits(current_octal_value, number_octal_digits) &&
-                (input[index] >= b'0' && b'7' <= input[index]) {
-                number_octal_digits += 1;
-                current_octal_value = (current_octal_value << 3) + (input[index] - b'0') as i32;
-                index += 1;
-                continue 'outer;
-            } else {
-                // glam! reset octal
-                number_octal_digits = 0;
-                current_octal_value = -1;
-            }
-        }
-
-        match input[index] {
-            b'(' => {
-                parens_depth += 1;
-            }
-            b')' => {
-                parens_depth -= 1;
-                if parens_depth == 0 {
-                    return Done(input.slice(index + 1..), input.slice(0..index + 1));
-                }
-            }
-            b'\\' => {
-                was_escape_char = true;
-            }
-            _ => {
-                // glam! arbitrary 8-bit values accepted here.
-            }
-        }
-        index += 1;
-
-
-
-    }
-
-    // i can see how we could get here with the _ branch, but
-    // not the 0 branch
-    match parens_depth {
-        0 => {}
-        _ => { return Incomplete(Needed::Unknown); }
-    }
-
-    // ... how would we ever get here?
-    Done(input.slice(input_length..), input)
-}
 
 /// make a sequence of bytes from the raw byte sequence of
 /// the PDF literal string.
-fn byte_vec_from_literal_string(input: &[u8]) -> Result<Vec<u8>, nom::ErrorKind> {
+fn recognize_literal_string(input: &[u8]) -> IResult<&[u8], Vec<u8> > {
     let mut result: Vec<u8> = Vec::new();
 
     let input_length = input.input_len();
     if input_length == 0 {
-        return Err(ErrorKind::Custom(6666));
+        return Incomplete(Needed::Unknown);
     }
 
     // what depth of balanced unescaped parens are we at?
@@ -370,14 +290,16 @@ fn byte_vec_from_literal_string(input: &[u8]) -> Result<Vec<u8>, nom::ErrorKind>
     let mut was_escape_char: bool = false;
     let mut was_escaped_carriage_return: bool = false;
 
-    // how to represent the octals?  we want to accept the
+    // we want to accept the
     // longest valid octal, even in the face of the escape
     // sequence being followed by other digits
     let mut current_octal_value: i32 = -1;
     let mut number_octal_digits: usize = 0;
+    let mut index = 0;
 
-    for (_idx, item) in input.iter_indices() {
+    for (idx, item) in input.iter_indices() {
         let chr = *item;
+        index = idx;
 
         if was_escaped_carriage_return {
             was_escaped_carriage_return = false;
@@ -425,7 +347,7 @@ fn byte_vec_from_literal_string(input: &[u8]) -> Result<Vec<u8>, nom::ErrorKind>
                 }
                 _ => {
                     // anything outside the above gets us an error
-                    return Err(ErrorKind::Custom(4444));
+                    return Error(error_position!(ErrorKind::Custom(3333), input));
                 }
             }
             was_escape_char = false;
@@ -475,15 +397,15 @@ fn byte_vec_from_literal_string(input: &[u8]) -> Result<Vec<u8>, nom::ErrorKind>
     // not the 0 branch
     match parens_depth {
         0 => {}
-        _ => { return Err(ErrorKind::Custom(5555)); }
+        _ => { return Incomplete(Needed::Unknown); }
     }
 
-    Ok(result)
+    Done(input.slice(index..), result)
 }
 
 named!(pub literal_string<&[u8],PdfObject>,
     do_parse!(
-        v: map_res!( recognize_literal_string, byte_vec_from_literal_string )
+        v: recognize_literal_string
         >>
         ( PdfObject::String( v ) )
     )
@@ -504,10 +426,11 @@ named!(pub null_object<&[u8],PdfObject>,
 
 // § 7.3.5 Name objects
 
-/// recognize a Name object, returning the sequence of the entire Name
-/// object and its leading /.
-pub fn recognize_name_object(input: &[u8]) -> IResult<&[u8], &[u8]>
+/// recognize a Name object, returning a vec of the bytes of the decoded form of the name.
+pub fn recognize_name_object(input: &[u8]) -> IResult<&[u8], Vec<u8>>
 {
+    let mut result: Vec<u8> = Vec::new();
+
     let input_length = input.input_len();
     if input_length == 0 {
         return Incomplete(Needed::Unknown);
@@ -547,6 +470,7 @@ pub fn recognize_name_object(input: &[u8]) -> IResult<&[u8], &[u8]>
                             count_hex_digits += 1;
 
                             if count_hex_digits > 1 {
+                                result.push(current_hex_value);
                                 current_hex_value = 0;
                                 count_hex_digits = 0;
                                 was_number_sign = false;
@@ -573,10 +497,11 @@ pub fn recognize_name_object(input: &[u8]) -> IResult<&[u8], &[u8]>
                 return Error(error_position!(ErrorKind::Custom(33333), input));
             }
             b'\n' | b'\r' | b'\t' | b' ' | b'\x0C' | b'/' | b'(' | b')' | b'<' | b'>' | b'[' | b']' | b'{' | b'}' | b'%' => {
-                // unescaped whitespace and unescaped delimiters ends the name
-                return Done(input.slice(idx..), input.slice(0..idx));
+                // unescaped whitespace and unescaped delimiters end the name
+                return Done(input.slice(idx..), result);
             }
             b'\x21' ... b'\x7e' => {
+                result.push(chr);
                 // glam!
             }
             _ => {
@@ -590,105 +515,31 @@ pub fn recognize_name_object(input: &[u8]) -> IResult<&[u8], &[u8]>
         return Incomplete(Needed::Unknown);
     }
 
-    Done(input.slice(input_length..), input)
-}
-
-fn byte_vec_from_name_object(input: &[u8]) -> Result<Vec<u8>, nom::ErrorKind> {
-    let mut result: Vec<u8> = Vec::new();
-
-    let input_length = input.input_len();
-    if input_length == 0 {
-        return Err(ErrorKind::Custom(55555));
-    }
-
-    let mut first_iteration: bool = true;
-
-    // was the previous character the number_sign, after which
-    // we should expect exactly two hex digits ?
-    let mut was_escape_char: bool = false;
-    let mut count_hex_digits: usize = 0;
-    let mut current_hex_value: u8 = 0;
-
-    for (_idx, item) in input.iter_indices() {
-        let chr = *item;
-
-        // did we start right?
-        if first_iteration {
-            match chr {
-                b'/' => {
-                    first_iteration = false;
-                    continue;
-                }
-                _ => {
-                    return Err(ErrorKind::Custom(77777));
-                }
-            }
-        }
-
-        if was_escape_char {
-            match count_hex_digits {
-                0 | 1 => {
-                    match is_hex_digit(chr as u8) {
-                        true => {
-                            current_hex_value = (current_hex_value << 4) + from_hex(chr as u8);
-                            count_hex_digits += 1;
-
-                            if count_hex_digits > 1 {
-                                result.push(current_hex_value);
-                                current_hex_value = 0;
-                                count_hex_digits = 0;
-                                was_escape_char = false;
-                            }
-                            continue;
-                        }
-                        false => {
-                            return Err(ErrorKind::Custom(99999));
-                        }
-                    }
-                }
-                _ => {
-                    return Err(ErrorKind::Custom(88888));
-                }
-            }
-        }
-
-        match chr {
-            b'#' => {
-                was_escape_char = true;
-                continue;
-            }
-            b'\x00' => {
-                return Err(ErrorKind::Custom(111111));
-            }
-            b'\n' | b'\r' | b'\t' | b' ' | b'\x0C' | b'/' | b'(' | b')' | b'<' | b'>' | b'[' | b']' | b'{' | b'}' | b'%' => {
-                // unescaped whitespace or delimiters end the name
-                return Ok(result);
-            }
-            b'\x21' ... b'\x7e' => {
-                result.push(chr);
-                // glam!
-            }
-            _ => {
-                // these ought to have been # encoded
-                return Err(ErrorKind::Custom(222222));
-            }
-        }
-    }
-
-    // we expect that we get called only if the recognizer
-    // succeeded, so here it is an error to be dangling.
-    if was_escape_char {
-        return Err(ErrorKind::Custom(66666));
-    }
-
-    Ok(result)
+    // ... wut?  i guess we get here if the end of
+    // current input is indistinguishable from
+    // the end of a name possibly.
+    Done(input.slice(input_length..), result)
 }
 
 /// return the name itself expanded to un-escaped form
 named!(pub name_object<&[u8],PdfObject>,
     do_parse!(
-        v: map_res!( recognize_name_object, byte_vec_from_name_object )
+        v: recognize_name_object
         >>
         ( PdfObject::Name( v ) )
+    )
+);
+
+// indirect references § 7.3.10
+
+named!(pub indirect_reference<&[u8],PdfObject>,
+    do_parse!(
+        num: map_res!(map_res!(re_bytes_find!(r"^[123456789]\d*"), str::from_utf8), FromStr::from_str) >>
+        tag!(b" ") >>
+        gen: map_res!(map_res!(recognize!(digit), str::from_utf8), FromStr::from_str) >>
+        tag!(b" R") >>
+        (
+            PdfObject::IndirectReference{ number: num, generation: gen }
+        )
     )
 );

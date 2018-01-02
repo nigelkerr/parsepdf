@@ -19,100 +19,9 @@ mod structs;
 pub use simple::*;
 pub use structs::*;
 
-named!(pdf_version<&[u8],&[u8]>,
-    re_bytes_find!("(1\\.[01234567]|2\\.0)")
-);
-
-named!(pub pdf_magic<&[u8],PdfVersion>,
-    do_parse!(
-        tag!(b"%PDF-") >>
-        ver_bytes: pdf_version >>
-        pdf_line_ending_by_macro >>
-        ( PdfVersion::Known{ ver: ver_bytes.to_vec() } )
-    )
-);
-
-// § 7.5.2
-
-named!(pub pdf_header<&[u8],PdfVersion>,
-    do_parse!(
-        ver: pdf_magic >>
-        opt!( comment ) >>
-        ( ver )
-    )
-);
 
 
 
-// indirect references § 7.3.10
-
-// surely there's a better way...
-named!(non_zero_positive_int_not_padded<&[u8], &[u8] >,
-    recognize!(
-        pair!(
-            alt!(
-                tag!(b"1") |
-                tag!(b"2") |
-                tag!(b"3") |
-                tag!(b"4") |
-                tag!(b"5") |
-                tag!(b"6") |
-                tag!(b"7") |
-                tag!(b"8") |
-                tag!(b"9")
-            ),
-            opt!( complete!(nom::digit ) )
-        )
-    )
-);
-
-named!(maybe_indirect_reference<&[u8], (&[u8],&[u8],&[u8],&[u8]) >,
-    tuple!(
-        non_zero_positive_int_not_padded,
-        tag!(b" "),
-        complete!(nom::digit),
-        tag!(b" R")
-    )
-);
-
-named!(pub recognize_indirect_reference<&[u8],&[u8]>,
-    recognize!(
-        maybe_indirect_reference
-    )
-);
-
-#[inline]
-fn dec_u32(input: &[u8]) -> u32 {
-    let mut res = 0u32;
-
-    for &e in input {
-        let digit = e as char;
-        let value = digit.to_digit(10).unwrap_or(0);
-        res = value + (res * 10);
-    }
-    res
-}
-
-named!(pub indirect_reference<&[u8],PdfObject>,
-    do_parse!(
-        number_bytes: non_zero_positive_int_not_padded >>
-        tag!(b" ") >>
-        version_bytes: recognize!(digit) >>
-        tag!(b" R") >>
-        (
-            PdfObject::IndirectReference{ number: dec_u32(number_bytes), generation: dec_u32(version_bytes) }
-        )
-    )
-);
-
-named!(pub recognize_disambiguate_signed_integer_vs_indirect_reference<&[u8],&[u8]>,
-    recognize!(
-        alt!(
-            complete!( indirect_reference ) |
-            complete!( signed_integer )
-        )
-    )
-);
 
 // array object § 7.3.6
 
@@ -353,14 +262,11 @@ mod tests {
 
     #[test]
     fn pdf_indirect_reference_test() {
-        assert_eq!(b"95 0 R".as_bytes(), recognize_indirect_reference(b"95 0 R".as_bytes()).to_result().unwrap());
-        assert_eq!(b"95 0 R".as_bytes(), recognize_indirect_reference(b"95 0 R ".as_bytes()).to_result().unwrap());
-        assert_eq!(b"9 1 R".as_bytes(), recognize_indirect_reference(b"9 1 R".as_bytes()).to_result().unwrap());
-        assert_eq!(Err(nom::Err::Position(nom::ErrorKind::Alt, [48, 57, 32, 49, 32, 82].as_bytes())), recognize_indirect_reference(b"09 1 R".as_bytes()).to_result());
-        assert_eq!(PdfObject::IndirectReference { number: 95, generation: 0 },
-                   indirect_reference(b"95 0 R ".as_bytes()).to_result().unwrap());
+        assert_eq!(PdfObject::IndirectReference { number: 95, generation: 1 },
+                   indirect_reference(b"95 1 R ".as_bytes()).to_result().unwrap());
         assert_eq!(PdfObject::IndirectReference { number: 95, generation: 100 },
                    indirect_reference(b"95 100 R ".as_bytes()).to_result().unwrap());
+        assert_eq!(Err(nom::Err::Code(nom::ErrorKind::RegexpFind)), indirect_reference(b"09 1 R".as_bytes()).to_result());
     }
 
     #[test]
