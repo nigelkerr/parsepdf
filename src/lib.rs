@@ -1,15 +1,9 @@
 #[macro_use]
 extern crate nom;
+
 #[macro_use]
 extern crate approx;
 extern crate regex;
-
-use nom::*;
-use nom::digit;
-use nom::ErrorKind;
-use nom::IResult::*;
-use std::str;
-use std::str::FromStr;
 
 // parse a pdf file, per ISO 32000-2_2017(en)
 

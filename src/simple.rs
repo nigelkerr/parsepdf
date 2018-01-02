@@ -7,6 +7,7 @@ use nom::IResult::*;
 use std::str;
 use std::str::FromStr;
 
+use structs::ErrorCodes;
 use structs::PdfObject;
 use structs::PdfVersion;
 
@@ -223,7 +224,7 @@ fn byte_vec_from_hexadecimal_string(input: &[u8]) -> Result<Vec<u8>, nom::ErrorK
         match pair.len() {
             2 => { result.push((pair[0] << 4) + pair[1]); }
             1 => { result.push((pair[0] << 4)); }
-            _ => return Err(nom::ErrorKind::Custom(1111)),
+            _ => return Err(nom::ErrorKind::Custom(ErrorCodes::UnexpectedHexDecodingSituation as u32)),
         }
     }
 
@@ -320,7 +321,7 @@ fn recognize_literal_string(input: &[u8]) -> IResult<&[u8], Vec<u8> > {
                 }
                 b'\r' => {
                     // we have to worry about \r vs \r\n here,
-                    // they both should be rendered into the result as \n
+                    // they both MUST be rendered into the result as \n
                     was_escaped_carriage_return = true;
                 }
                 b'n' => {
@@ -347,7 +348,7 @@ fn recognize_literal_string(input: &[u8]) -> IResult<&[u8], Vec<u8> > {
                 }
                 _ => {
                     // anything outside the above gets us an error
-                    return Error(error_position!(ErrorKind::Custom(3333), input));
+                    return Error(error_position!(ErrorKind::Custom(ErrorCodes::UnrecognizedEscapeSequence as u32), input));
                 }
             }
             was_escape_char = false;
@@ -456,7 +457,7 @@ pub fn recognize_name_object(input: &[u8]) -> IResult<&[u8], Vec<u8>>
                     continue;
                 }
                 _ => {
-                    return Error(error_position!(ErrorKind::Custom(7777), input));
+                    return Error(error_position!(ErrorKind::Custom(ErrorCodes::NameNotStartWithSlash as u32), input));
                 }
             }
         }
@@ -478,12 +479,13 @@ pub fn recognize_name_object(input: &[u8]) -> IResult<&[u8], Vec<u8>>
                             continue;
                         }
                         false => {
-                            return Error(error_position!(ErrorKind::Custom(9999), input));
+                            return Error(error_position!(ErrorKind::Custom(ErrorCodes::ExpectedHexDigit as u32), input));
                         }
                     }
                 }
+                // how will we ever get here?
                 _ => {
-                    return Error(error_position!(ErrorKind::Custom(8888), input));
+                    return Error(error_position!(ErrorKind::Custom(ErrorCodes::TooManyHexDigits as u32), input));
                 }
             }
         }
@@ -494,7 +496,7 @@ pub fn recognize_name_object(input: &[u8]) -> IResult<&[u8], Vec<u8>>
                 continue;
             }
             b'\x00' => {
-                return Error(error_position!(ErrorKind::Custom(33333), input));
+                return Error(error_position!(ErrorKind::Custom(ErrorCodes::HexStringIncludesZeroByte as u32), input));
             }
             b'\n' | b'\r' | b'\t' | b' ' | b'\x0C' | b'/' | b'(' | b')' | b'<' | b'>' | b'[' | b']' | b'{' | b'}' | b'%' => {
                 // unescaped whitespace and unescaped delimiters end the name
@@ -506,7 +508,7 @@ pub fn recognize_name_object(input: &[u8]) -> IResult<&[u8], Vec<u8>>
             }
             _ => {
                 // these ought to have been # encoded
-                return Error(error_position!(ErrorKind::Custom(22222), input));
+                return Error(error_position!(ErrorKind::Custom(ErrorCodes::ByteValueOughtToHaveBeenHexEncoded as u32), input));
             }
         }
     }
@@ -732,7 +734,7 @@ mod tests {
     }
 
     lset! {
-        lset_1: (b"(abc\\80)", Error(nom::Err::Position(ErrorKind::Custom(3333), b"(abc\\80)".as_bytes()))),
+        lset_1: (b"(abc\\80)", Error(nom::Err::Position(ErrorKind::Custom(ErrorCodes::UnrecognizedEscapeSequence as u32), b"(abc\\80)".as_bytes()))),
     }
 
     macro_rules! tlsr {

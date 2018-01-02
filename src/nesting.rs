@@ -13,7 +13,7 @@ use structs::PdfVersion;
 use simple::*;
 
 // array object § 7.3.6
-
+/*
 
 pub fn array_object(input: &[u8]) -> IResult<&[u8], PdfObject>
 {
@@ -98,7 +98,7 @@ pub fn array_object(input: &[u8]) -> IResult<&[u8], PdfObject>
 
     Incomplete(Needed::Unknown)
 }
-
+*/
 /*
 
 // dictionary § 7.3.7

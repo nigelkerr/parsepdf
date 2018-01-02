@@ -1,11 +1,15 @@
-extern crate nom;
 
-use nom::*;
-use nom::digit;
-use nom::ErrorKind;
-use nom::IResult::*;
-use std::str;
-use std::str::FromStr;
+
+#[derive(Debug, PartialEq, Eq)]
+pub enum ErrorCodes {
+    NameNotStartWithSlash = 1024,
+    ExpectedHexDigit,
+    TooManyHexDigits,
+    HexStringIncludesZeroByte,
+    UnexpectedHexDecodingSituation,
+    ByteValueOughtToHaveBeenHexEncoded,
+    UnrecognizedEscapeSequence,
+}
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum PdfVersion {
