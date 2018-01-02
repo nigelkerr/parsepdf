@@ -8,4 +8,7 @@ approx="0.1.1"
 
 [dependencies.nom]
 version = "^3.2"
-features = ["verbose-errors"]
+features = ["verbose-errors", "regexp"]
+
+[dependencies.regex]
+version = "^0.2"
