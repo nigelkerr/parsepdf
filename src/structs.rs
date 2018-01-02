@@ -9,6 +9,9 @@ pub enum ErrorCodes {
     UnexpectedHexDecodingSituation,
     ByteValueOughtToHaveBeenHexEncoded,
     UnrecognizedEscapeSequence,
+    ExpectedStringStart,
+    ExpectedArrayStart,
+    NoValidArrayContents,
 }
 
 #[derive(Debug, PartialEq, Eq)]

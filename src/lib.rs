@@ -19,41 +19,85 @@ pub use nesting::*;
 #[cfg(test)]
 mod tests {
     use super::*;
+    use nom::AsBytes;
 
-/*
     macro_rules! recognized_array_object_test {
         ($($name:ident: $value:expr,)*) => {
             $(
                 #[test]
                 fn $name() {
                     let (input, expected) = $value;
-                    assert_eq!(recognize_array_object(input.as_bytes()).to_result().unwrap().len(),
+                    assert_eq!(array_object(input.as_bytes()).to_result().unwrap(),
                         expected);
                 }
             )*
         }
     }
     recognized_array_object_test! {
-        raot_1: (b"[1 2 3]", 7),
-        raot_2: (b"[1 2 [3]]", 9),
-        raot_3: (b"[1 2[3]]", 8),
+        raot_1: (b"[1 2 3]",
+            PdfObject::Array( vec![PdfObject::Integer(1), PdfObject::Integer(2),PdfObject::Integer(3) ])),
+        raot_2: (b"[1 2 [3]]",
+            PdfObject::Array( vec![PdfObject::Integer(1), PdfObject::Integer(2),
+                                    PdfObject::Array( vec![PdfObject::Integer(3) ])
+                                    ])),
+        raot_3: (b"[1 2[3]]", PdfObject::Array( vec![PdfObject::Integer(1), PdfObject::Integer(2),
+                                    PdfObject::Array( vec![PdfObject::Integer(3) ])
+                                    ])),
 
-        raot_5: (b"[/1 2[3]]", 9),
-        raot_6: (b"[/12[3]] ]", 8),
-        raot_7: (b"[/12 [3]]", 9),
+        raot_5: (b"[/1 2[3]]", PdfObject::Array( vec![PdfObject::Name(b"1"[..].to_owned()), PdfObject::Integer(2),
+                                    PdfObject::Array( vec![PdfObject::Integer(3) ])
+                                    ])),
+        raot_6: (b"[/12[3]] ]", PdfObject::Array( vec![PdfObject::Name(b"12"[..].to_owned()),
+                                    PdfObject::Array( vec![PdfObject::Integer(3) ])
+                                    ])),
+        raot_7: (b"[/12 [3]]", PdfObject::Array( vec![PdfObject::Name(b"12"[..].to_owned()),
+                                    PdfObject::Array( vec![PdfObject::Integer(3) ])
+                                    ])),
 
-        raot_8: (b"[       /12 \n1\r\r2    [ ] ]", 26),
+        raot_8: (b"[       /12 \n1\r\r2    [ ] ]",
+                                PdfObject::Array( vec![PdfObject::Name(b"12"[..].to_owned()),
+                                PdfObject::Integer(1), PdfObject::Integer(2),
+                                    PdfObject::Array( vec![ ])
+                                    ])),
 
-        raot_9: (b"[1%yo\r %yo\n2%hiya\r\n [3]]", 24),
-        raot_10: (b"[%yo\r1%yo\r %yo\n2%hiya\r\n [3]]", 28),
+        raot_9: (b"[1%yo\r %yo\n2%hiya\r\n [3]]",
+                                PdfObject::Array( vec![PdfObject::Integer(1), PdfObject::Integer(2),
+                                    PdfObject::Array( vec![PdfObject::Integer(3) ])
+                                    ])),
+        raot_10: (b"[%yo\r1%yo\r %yo\n2%hiya\r\n [3]]",
+                                PdfObject::Array( vec![PdfObject::Integer(1), PdfObject::Integer(2),
+                                    PdfObject::Array( vec![PdfObject::Integer(3) ])
+                                    ])),
 
-        raot_11: (b"[(hiya) /yo 1 2 3]", 18),
-        raot_12: (b"[<09 ab> /yo 1 2 3]", 19),
-        raot_13: (b"[99 0 R /yo 1 2 3]", 18),
-        raot_14: (b"[99 0 R 100 0 R  ]", 18),
-        raot_15: (b"[<</a[1 2 3]>> <</b 1 2 R>>]", 28),
+        raot_12: (b"[<09 ab> /yo 1 2 3]",
+                                PdfObject::Array( vec![
+                                    PdfObject::String(b"\x09\xAB"[..].to_owned()),
+                                    PdfObject::Name(b"yo"[..].to_owned()),
+                                    PdfObject::Integer(1), PdfObject::Integer(2),PdfObject::Integer(3)
+                                ])),
+        raot_13: (b"[99 0 R /yo 1 2 3]",
+                                PdfObject::Array( vec![
+                                    PdfObject::IndirectReference { number: 99, generation: 0 },
+                                    PdfObject::Name(b"yo"[..].to_owned()),
+                                    PdfObject::Integer(1), PdfObject::Integer(2),PdfObject::Integer(3)
+                                ])),
+        raot_14: (b"[99 0 R 100 2 R  ]",
+                                PdfObject::Array( vec![
+                                    PdfObject::IndirectReference { number: 99, generation: 0 },
+                                    PdfObject::IndirectReference { number: 100, generation: 2 },
+                                ])),
+
+        raot_11: (b"[(hiya) /yo 1 2 3]",
+                                PdfObject::Array( vec![
+                                    PdfObject::String(b"hiya"[..].to_owned()),
+                                    PdfObject::Name(b"yo"[..].to_owned()),
+                                    PdfObject::Integer(1), PdfObject::Integer(2),PdfObject::Integer(3)
+                                ])),
+
+        /* raot_15: (b"[<</a[1 2 3]>> <</b 1 2 R>>]", 28), */
     }
 
+    /*
     macro_rules! recognized_dict_object_test {
         ($($name:ident: $value:expr,)*) => {
             $(

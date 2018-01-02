@@ -7,27 +7,28 @@ use nom::IResult::*;
 use std::str;
 use std::str::FromStr;
 
+use structs::ErrorCodes;
 use structs::PdfObject;
 use structs::PdfVersion;
 
 use simple::*;
 
 // array object § 7.3.6
-/*
 
 pub fn array_object(input: &[u8]) -> IResult<&[u8], PdfObject>
 {
-    let input_length = input.len();
+    let mut result: Vec<PdfObject> = Vec::new();
 
-    if input_length == 0 {
+    if input.len() == 0 {
         return Incomplete(Needed::Unknown);
     }
 
+    let mut linput = input;
 
     let mut index: usize = 0;
     let mut inside: bool = false;
 
-    let mut functions: Vec<fn(&[u8]) -> IResult<&[u8], &[u8]>> = Vec::new();
+    let mut functions: Vec<fn(&[u8]) -> IResult<&[u8], PdfObject>> = Vec::new();
     functions.push(indirect_reference);
     functions.push(signed_integer);
     functions.push(signed_float);
@@ -38,67 +39,75 @@ pub fn array_object(input: &[u8]) -> IResult<&[u8], PdfObject>
     functions.push(hexadecimal_string);
     functions.push(literal_string);
     functions.push(array_object);
-    functions.push(dictionary_object);
+//    functions.push(dictionary_object);
 
     // move forward through input until we Complete an Array at this level,
-    // or get an Error/Incomplete (which return)
-
-    // item-by-item maybe not what we want, but by recognized clump ?
-    // try to recognize what we can for starters
+    // or get an Error/Incomplete (which return).
+    // we dodge needing to know where to start by re-assigning the linput
+    // we are working through after recognizing most objects.  should
+    // we treat whitespace the way we treat the others?
 
     'outer:
-        while index < input_length {
+        loop {
+        'inner:
+            while index < linput.len() {
+            if !inside {
+                index += skip_whitespace(&linput[index..]);
 
-        // consume optional whitespace preamble
-        if !inside {
-            index += skip_whitespace(&input[index..]);
-
-            if input[index] == b'[' {
-                inside = true;
-                index += 1;
-                continue 'outer;
-            } else {
-                // anything not whitespace and not [ isn't an array at this point,
-                // we ought to consume it some other way.
-                return Error(error_position!(ErrorKind::Custom(12345), input));
+                if linput[index] == b'[' {
+                    inside = true;
+                    index += 1;
+                    continue 'inner;
+                } else {
+                    // anything not whitespace and not [ isn't an array at this point,
+                    // we ought to consume it some other way.
+                    return Error(error_position!(ErrorKind::Custom(ErrorCodes::ExpectedArrayStart as u32), input));
+                }
             }
+
+            index += skip_whitespace(&linput[index..]);
+
+            if linput[index] == b']' {
+                return Done(&linput[index + 1..], PdfObject::Array(result));
+            }
+
+            for recognizer in &functions {
+                match (*recognizer)(&linput[index..]) {
+                    Done(rest, obj) => {
+                        match obj {
+                            PdfObject::Comment(_) => {
+                                // should we retain these?
+                            }
+                            _ => {
+                                result.push(obj);
+                            }
+                        }
+                        // reset our input to the new start of input
+                        linput = rest;
+                        index = 0;
+                        continue 'outer;
+                    }
+                    Incomplete(whatever) => {
+                        return Incomplete(whatever);
+                    }
+                    _ => {
+                        // i think we ignore these til we bail out
+                        // of this regonizers function loop.  it will
+                        // be an error eventually. (right?)
+                    }
+                };
+            }
+
+            // we reached here without recognizing anything!
+            return Error(error_position!(ErrorKind::Custom(ErrorCodes::NoValidArrayContents as u32), input));
         }
-
-        index += skip_whitespace(&input[index..]);
-
-        if input[index] == b']' {
-            return Done(&input[index + 1..], &input[..index + 1]);
-        }
-
-        for recognizer in &functions {
-            match (*recognizer)(&input[index..]) {
-                Done(_, recognized) => {
-                    index += recognized.len();
-                    continue 'outer;
-                }
-                Incomplete(whatever) => {
-                    return Incomplete(whatever);
-                }
-                _ => {
-                    // i think we ignore these til we bail out
-                    // of this regonizers function loop.  it will
-                    // be an error eventually. (right?)
-                }
-            };
-        }
-
-
-        // so its not ending the array, not whitespace, its
-        // not an int, its not a name, not a comment
-        // its not an array.  must be error.
-        // or is it incomplete?  could we complete from wherever we are?
-
-        return Error(error_position!(ErrorKind::Custom(12347), input));
     }
 
+    // she says we cant get here.
     Incomplete(Needed::Unknown)
 }
-*/
+
+
 /*
 
 // dictionary § 7.3.7

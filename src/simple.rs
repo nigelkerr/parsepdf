@@ -260,17 +260,8 @@ fn could_have_more_octal_digits(v: i32, digits: usize) -> bool {
     retval
 }
 
-/// determine if we have a valid pdf literal string, and
-/// return the full sequence of bytes from opening paren
-/// to closing paren.
-/// no treatment of leading or following whitespace, handle
-/// that outside.
-/// we're going to need to have a crassly similar loop for
-/// taking this byte-sequence and understanding it as a
-/// character sequence.
-
-
-/// make a sequence of bytes from the raw byte sequence of
+/// determine if we have a valid pdf literal string,
+/// make a sequence of decoded data bytes from the raw byte sequence of
 /// the PDF literal string.
 fn recognize_literal_string(input: &[u8]) -> IResult<&[u8], Vec<u8> > {
     let mut result: Vec<u8> = Vec::new();
@@ -279,6 +270,9 @@ fn recognize_literal_string(input: &[u8]) -> IResult<&[u8], Vec<u8> > {
     if input_length == 0 {
         return Incomplete(Needed::Unknown);
     }
+
+    // are we inside the string yet?
+    let mut inside: bool = false;
 
     // what depth of balanced unescaped parens are we at?
     // starts our iteration at 0, and it ought to be 0
@@ -298,9 +292,18 @@ fn recognize_literal_string(input: &[u8]) -> IResult<&[u8], Vec<u8> > {
     let mut number_octal_digits: usize = 0;
     let mut index = 0;
 
+    'outer:
     for (idx, item) in input.iter_indices() {
         let chr = *item;
         index = idx;
+
+        if ! inside {
+            if chr != b'(' {
+                return Error(error_position!(ErrorKind::Custom(ErrorCodes::ExpectedStringStart as u32), input));
+            }
+            inside = true;
+            // and then head to the switch below.  re-write this.
+        }
 
         if was_escaped_carriage_return {
             was_escaped_carriage_return = false;
@@ -382,7 +385,7 @@ fn recognize_literal_string(input: &[u8]) -> IResult<&[u8], Vec<u8> > {
                     result.push(chr);
                 }
                 if parens_depth == 0 {
-                    break;
+                    break 'outer;
                 }
             }
             b'\\' => {
@@ -400,8 +403,8 @@ fn recognize_literal_string(input: &[u8]) -> IResult<&[u8], Vec<u8> > {
         0 => {}
         _ => { return Incomplete(Needed::Unknown); }
     }
-
-    Done(input.slice(index..), result)
+    // +1 because the last index we look at is the final ) itself
+    Done(input.slice(index+1..), result)
 }
 
 named!(pub literal_string<&[u8],PdfObject>,
@@ -757,6 +760,7 @@ mod tests {
     }
 
     tlsr! {
+        tlsr_00: ( b"(hiya)", b"hiya"),
         tlsr_0: (b"(abcd)", b"abcd"),
         tlsr_1: (b"(\\247)", b"\xA7"),
 
