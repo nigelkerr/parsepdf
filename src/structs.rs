@@ -17,10 +17,11 @@ pub enum PdfVersion {
 pub enum PdfObject {
     Null,
     Boolean ( bool ),
-    Integer (i64),
-    Float (f64),
+    Integer (i64 ),
+    Float (f64 ),
     Comment ( Vec<u8> ),
     String ( Vec<u8> ),
     Name( Vec<u8> ),
+    Array( Vec<PdfObject> ),
     IndirectReference { number: u32, generation: u32 },
 }

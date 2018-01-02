@@ -12,8 +12,10 @@ use structs::PdfVersion;
 
 use simple::*;
 
-/*
-pub fn recognize_array_object(input: &[u8]) -> IResult<&[u8], &[u8]>
+// array object § 7.3.6
+
+
+pub fn array_object(input: &[u8]) -> IResult<&[u8], PdfObject>
 {
     let input_length = input.len();
 
@@ -26,16 +28,17 @@ pub fn recognize_array_object(input: &[u8]) -> IResult<&[u8], &[u8]>
     let mut inside: bool = false;
 
     let mut functions: Vec<fn(&[u8]) -> IResult<&[u8], &[u8]>> = Vec::new();
-    functions.push(recognize_disambiguate_signed_integer_vs_indirect_reference);
-    functions.push(recognize_signed_float);
-    functions.push(recognize_null_object);
-    functions.push(recognize_boolean);
-    functions.push(recognize_name_object);
-    functions.push(recognize_comment);
-    functions.push(recognize_hexadecimal_string);
-    functions.push(recognize_literal_string);
-    functions.push(recognize_array_object);
-    functions.push(recognize_dictionary_object);
+    functions.push(indirect_reference);
+    functions.push(signed_integer);
+    functions.push(signed_float);
+    functions.push(null_object);
+    functions.push(boolean);
+    functions.push(name_object);
+    functions.push(comment);
+    functions.push(hexadecimal_string);
+    functions.push(literal_string);
+    functions.push(array_object);
+    functions.push(dictionary_object);
 
     // move forward through input until we Complete an Array at this level,
     // or get an Error/Incomplete (which return)
@@ -96,10 +99,9 @@ pub fn recognize_array_object(input: &[u8]) -> IResult<&[u8], &[u8]>
     Incomplete(Needed::Unknown)
 }
 
-// FIXME: something that builds on recognizing to return an array structure.
+/*
 
 // dictionary § 7.3.7
-// recognizer first
 
 pub fn recognize_dictionary_object(input: &[u8]) -> IResult<&[u8], &[u8]>
 {
