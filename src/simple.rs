@@ -120,14 +120,14 @@ named!(pub signed_float<&[u8],PdfObject>,
 
 // comments § 7.2.4
 
-// comments are going to by my undoing, given where all they can occur
+// comments are going to by my undoing, given where all they can occur.
+// the comment does not include the line-ending itself, just up to it.
 
 named!(pub recognize_comment<&[u8],&[u8]>,
     recognize!(
         tuple!(
             tag!(b"%"),
-            take_while!( is_not_line_end_chars ),
-            pdf_line_ending_by_macro
+            take_while!( is_not_line_end_chars )
         )
     )
 );
@@ -628,7 +628,7 @@ mod tests {
     fn header_test() {
         assert_eq!(nom::IResult::Done(b" ".as_bytes(), PdfVersion::Known { ver: b"1.0".to_vec() }),
                    pdf_header(b"%PDF-1.0\r ".as_bytes()));
-        assert_eq!(nom::IResult::Done(b" ".as_bytes(), PdfVersion::Known { ver: b"2.0".to_vec() }),
+        assert_eq!(nom::IResult::Done(b"\n ".as_bytes(), PdfVersion::Known { ver: b"2.0".to_vec() }),
                    pdf_header("%PDF-2.0\r%なななな\n ".as_bytes()));
     }
 
