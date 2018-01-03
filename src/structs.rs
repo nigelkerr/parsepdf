@@ -14,6 +14,9 @@ pub enum ErrorCodes {
     ExpectedStringStart,
     ExpectedArrayStart,
     NoValidArrayContents,
+    ExpectedDictionaryStart,
+    ExpectedDictionaryValue,
+    NoValidDictionaryContents,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -66,10 +69,17 @@ impl NameKeyedMap {
         }
     }
 
-    pub fn insert(&mut self, k: PdfObject, v: PdfObject) -> Result<PdfObject, PdfError> {
+    pub fn insert(&mut self, k: PdfObject, v: PdfObject) -> Result<Option<PdfObject>, PdfError> {
         match k {
             PdfObject::Name(x) => {
-                Ok(self.map.insert(x, v).unwrap())
+                match self.map.insert(x, v) {
+                    Some(z) => {
+                        Ok(Some(z))
+                    },
+                    None => {
+                        Ok(None)
+                    }
+                }
             }
             _ => {
                 Err(PdfError { desc: "key wasnt a PdfObject::Name".to_string() })
@@ -77,13 +87,18 @@ impl NameKeyedMap {
         }
     }
 
-    pub fn of(values: Vec<PdfObject>) -> NameKeyedMap {
+    pub fn of(values: Vec<PdfObject>) -> Result<Option<NameKeyedMap>, PdfError> {
         let mut map: NameKeyedMap = NameKeyedMap::new();
 
         for window in values.windows(2) {
-            map.insert(window[0].clone(), window[1].clone());
+            match map.insert(window[0].clone(), window[1].clone()) {
+                Ok(_) => {},
+                Err(x) => {
+                    return Err(x)
+                }
+            }
         }
 
-        map
+        Ok(Some(map))
     }
 }

@@ -1,15 +1,11 @@
 extern crate nom;
 
 use nom::*;
-use nom::digit;
 use nom::ErrorKind;
 use nom::IResult::*;
-use std::str;
-use std::str::FromStr;
 
 use structs::ErrorCodes;
 use structs::PdfObject;
-use structs::PdfVersion;
 use structs::NameKeyedMap;
 
 use simple::*;
@@ -93,7 +89,7 @@ pub fn array_object(input: &[u8]) -> IResult<&[u8], PdfObject>
                     }
                     _ => {
                         // i think we ignore these til we bail out
-                        // of this regonizers function loop.  it will
+                        // of this recognizers function loop.  it will
                         // be an error eventually. (right?)
                     }
                 };
@@ -103,9 +99,6 @@ pub fn array_object(input: &[u8]) -> IResult<&[u8], PdfObject>
             return Error(error_position!(ErrorKind::Custom(ErrorCodes::NoValidArrayContents as u32), input));
         }
     }
-
-    // she says we cant get here.
-    Incomplete(Needed::Unknown)
 }
 
 
@@ -163,7 +156,7 @@ pub fn dictionary_object(input: &[u8]) -> IResult<&[u8], PdfObject>
                 } else {
                     // anything not whitespace and not < isn't a dict at this point,
                     // we ought to consume it some other way.
-                    return Error(error_position!(ErrorKind::Custom(34567), input));
+                    return Error(error_position!(ErrorKind::Custom(ErrorCodes::ExpectedDictionaryStart as u32), input));
                 }
             }
 
@@ -179,7 +172,7 @@ pub fn dictionary_object(input: &[u8]) -> IResult<&[u8], PdfObject>
                     return Done(&linput[index + 2..], PdfObject::Dictionary(result));
                 } else {
                     // if we were expecting a value, we're error
-                    return Error(error_position!(ErrorKind::Custom(34569), input));
+                    return Error(error_position!(ErrorKind::Custom(ErrorCodes::ExpectedDictionaryValue as u32), input));
                 }
             }
 
@@ -220,7 +213,7 @@ pub fn dictionary_object(input: &[u8]) -> IResult<&[u8], PdfObject>
                                     // skip these
                                 },
                                 _ => {
-                                    result.insert(current_key.clone(), obj);
+                                    let _ = result.insert(current_key.clone(), obj);
                                     expect_name = !expect_name;
                                 }
                             }
@@ -238,20 +231,220 @@ pub fn dictionary_object(input: &[u8]) -> IResult<&[u8], PdfObject>
                 }
             }
 
-
-            // so its not ending the dict, not not any other valid object.
-            // must be error.
-            // or is it incomplete?  could we complete from wherever we are?
-
-            return Error(error_position!(ErrorKind::Custom(34568), input));
+            return Error(error_position!(ErrorKind::Custom(ErrorCodes::NoValidDictionaryContents as u32), input));
         }
     }
-
-    Incomplete(Needed::Unknown)
 }
 
 
 // Stream objects § 7.3.8
 // these are a Dictionary that must have a /Length value, and the stream..endstream after it
 
+
+
+
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use nom::AsBytes;
+
+    macro_rules! recognized_array_object_test {
+        ($($name:ident: $value:expr,)*) => {
+            $(
+                #[test]
+                fn $name() {
+                    let (input, expected) = $value;
+                    assert_eq!(array_object(input.as_bytes()).to_result().unwrap(),
+                        expected);
+                }
+            )*
+        }
+    }
+    recognized_array_object_test! {
+        raot_1: (b"[1 2 3]",
+            PdfObject::Array( vec![PdfObject::Integer(1), PdfObject::Integer(2),PdfObject::Integer(3) ])),
+        raot_2: (b"[1 2 [3]]",
+            PdfObject::Array( vec![PdfObject::Integer(1), PdfObject::Integer(2),
+                                    PdfObject::Array( vec![PdfObject::Integer(3) ])
+                                    ])),
+        raot_3: (b"[1 2[3]]", PdfObject::Array( vec![PdfObject::Integer(1), PdfObject::Integer(2),
+                                    PdfObject::Array( vec![PdfObject::Integer(3) ])
+                                    ])),
+
+        raot_5: (b"[/1 2[3]]", PdfObject::Array( vec![PdfObject::Name(b"1"[..].to_owned()), PdfObject::Integer(2),
+                                    PdfObject::Array( vec![PdfObject::Integer(3) ])
+                                    ])),
+        raot_6: (b"[/12[3]] ]", PdfObject::Array( vec![PdfObject::Name(b"12"[..].to_owned()),
+                                    PdfObject::Array( vec![PdfObject::Integer(3) ])
+                                    ])),
+        raot_7: (b"[/12 [3]]", PdfObject::Array( vec![PdfObject::Name(b"12"[..].to_owned()),
+                                    PdfObject::Array( vec![PdfObject::Integer(3) ])
+                                    ])),
+
+        raot_8: (b"[       /12 \n1\r\r2    [ ] ]",
+                                PdfObject::Array( vec![PdfObject::Name(b"12"[..].to_owned()),
+                                PdfObject::Integer(1), PdfObject::Integer(2),
+                                    PdfObject::Array( vec![ ])
+                                    ])),
+
+        raot_9: (b"[1%yo\r %yo\n2%hiya\r\n [3]]",
+                                PdfObject::Array( vec![PdfObject::Integer(1), PdfObject::Integer(2),
+                                    PdfObject::Array( vec![PdfObject::Integer(3) ])
+                                    ])),
+        raot_10: (b"[%yo\r1%yo\r %yo\n2%hiya\r\n [3]]",
+                                PdfObject::Array( vec![PdfObject::Integer(1), PdfObject::Integer(2),
+                                    PdfObject::Array( vec![PdfObject::Integer(3) ])
+                                    ])),
+
+        raot_12: (b"[<09 ab> /yo 1 2 3]",
+                                PdfObject::Array( vec![
+                                    PdfObject::String(b"\x09\xAB"[..].to_owned()),
+                                    PdfObject::Name(b"yo"[..].to_owned()),
+                                    PdfObject::Integer(1), PdfObject::Integer(2),PdfObject::Integer(3)
+                                ])),
+        raot_13: (b"[99 0 R /yo 1 2 3]",
+                                PdfObject::Array( vec![
+                                    PdfObject::IndirectReference { number: 99, generation: 0 },
+                                    PdfObject::Name(b"yo"[..].to_owned()),
+                                    PdfObject::Integer(1), PdfObject::Integer(2),PdfObject::Integer(3)
+                                ])),
+        raot_14: (b"[99 0 R 100 2 R  ]",
+                                PdfObject::Array( vec![
+                                    PdfObject::IndirectReference { number: 99, generation: 0 },
+                                    PdfObject::IndirectReference { number: 100, generation: 2 },
+                                ])),
+
+        raot_11: (b"[(hiya) /yo 1 2 3]",
+                                PdfObject::Array( vec![
+                                    PdfObject::String(b"hiya"[..].to_owned()),
+                                    PdfObject::Name(b"yo"[..].to_owned()),
+                                    PdfObject::Integer(1), PdfObject::Integer(2),PdfObject::Integer(3)
+                                ])),
+
+        /* raot_15: (b"[<</a[1 2 3]>> <</b 1 2 R>>]", 28), FIXME */
+    }
+
+    macro_rules! recognized_dict_object_test {
+        ($($name:ident: $value:expr,)*) => {
+            $(
+                #[test]
+                fn $name() {
+                    let (input, expected) = $value;
+                    assert_eq!(dictionary_object(input.as_bytes()).to_result().unwrap(),
+                        expected);
+                }
+            )*
+        }
+    }
+
+    recognized_dict_object_test! {
+        rd_1: (b"<< >>", PdfObject::Dictionary( NameKeyedMap::new() )),
+        rd_2: (b"<</yo%yo\n1>>", PdfObject::Dictionary( NameKeyedMap::of(
+                                    vec![
+                                        PdfObject::Name( b"yo"[..].to_owned()),
+                                        PdfObject::Integer( 1 )
+                                    ]
+                                ).unwrap().unwrap() )),
+        rd_3: (b"<</a<</a<</a [1]>>>>>>",
+
+                    PdfObject::Dictionary(
+                        NameKeyedMap::of(
+                            vec![
+                                PdfObject::Name( b"a"[..].to_owned()),
+                                PdfObject::Dictionary(
+                                    NameKeyedMap::of(
+                                        vec![
+                                            PdfObject::Name( b"a"[..].to_owned()),
+                                            PdfObject::Dictionary(
+                                                NameKeyedMap::of(
+                                                    vec![
+                                                        PdfObject::Name( b"a"[..].to_owned()),
+                                                        PdfObject::Array( vec![PdfObject::Integer(1) ])
+                                                    ]
+                                                ).unwrap().unwrap()
+                                            )
+                                        ]
+                                    ).unwrap().unwrap()
+                                )
+                            ]
+                        ).unwrap().unwrap()
+                    )
+
+                ),
+        rd_4: (b"<</a<</a<</a 1>>>>>>",
+                    PdfObject::Dictionary(
+                        NameKeyedMap::of(
+                            vec![
+                                PdfObject::Name( b"a"[..].to_owned()),
+                                PdfObject::Dictionary(
+                                    NameKeyedMap::of(
+                                        vec![
+                                            PdfObject::Name( b"a"[..].to_owned()),
+                                            PdfObject::Dictionary(
+                                                NameKeyedMap::of(
+                                                    vec![
+                                                        PdfObject::Name( b"a"[..].to_owned()),
+                                                        PdfObject::Integer(1)
+                                                    ]
+                                                ).unwrap().unwrap()
+                                            )
+                                        ]
+                                    ).unwrap().unwrap()
+                                )
+                            ]
+                        ).unwrap().unwrap()
+                    )
+        ),
+        rd_5: (b"<</a<</a<abcdef>>>>>",
+                    PdfObject::Dictionary(
+                        NameKeyedMap::of(
+                            vec![
+                                PdfObject::Name( b"a"[..].to_owned()),
+                                PdfObject::Dictionary(
+                                    NameKeyedMap::of(
+                                        vec![
+                                            PdfObject::Name( b"a"[..].to_owned()),
+                                            PdfObject::String( b"\xAB\xCD\xEF"[..].to_owned() )
+                                        ]
+                                    ).unwrap().unwrap()
+                                )
+                            ]
+                        ).unwrap().unwrap()
+                    )
+
+        ),
+        rd_6: (b"<</a<</a%yo\n<abcdef>>>>>",
+                    PdfObject::Dictionary(
+                        NameKeyedMap::of(
+                            vec![
+                                PdfObject::Name( b"a"[..].to_owned()),
+                                PdfObject::Dictionary(
+                                    NameKeyedMap::of(
+                                        vec![
+                                            PdfObject::Name( b"a"[..].to_owned()),
+                                            PdfObject::String( b"\xAB\xCD\xEF"[..].to_owned() )
+                                        ]
+                                    ).unwrap().unwrap()
+                                )
+                            ]
+                        ).unwrap().unwrap()
+                    )
+        ),
+    }
+
+    #[test]
+    fn test_recognized_dict_object_errors () {
+
+        assert_eq!(
+            nom::Err::Position(nom::ErrorKind::Custom(ErrorCodes::ExpectedDictionaryValue as u32), b"<</yo%yo\n >>".as_bytes()),
+            dictionary_object(b"<</yo%yo\n >>".as_bytes()).to_result().unwrap_err()
+        );
+        assert_eq!(
+            nom::Err::Position(nom::ErrorKind::Custom(ErrorCodes::ExpectedDictionaryValue as u32), b"<</yo>>".as_bytes()),
+            dictionary_object(b"<</yo>>".as_bytes()).to_result().unwrap_err()
+        );
+    }
+}
 
