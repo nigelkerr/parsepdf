@@ -31,7 +31,7 @@ pub enum PdfObject {
     Boolean ( bool ),
     Integer (i64 ),
     Float (f64 ),
-    Comment ( Vec<u8> ),
+    Comment ( Vec<u8> ),  // perhaps get rid of Comment and make it consumable like ws
     String ( Vec<u8> ),
     Name( Vec<u8> ),
     Array( Vec<PdfObject> ),
@@ -55,7 +55,8 @@ impl std::error::Error for PdfError {
     }
 }
 
-// only Name values as keys
+// only Name values acceptable as keys, and really a clone of the Name's
+// Vec<u8> used as the key.
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct NameKeyedMap {

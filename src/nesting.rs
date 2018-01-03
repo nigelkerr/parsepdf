@@ -323,7 +323,19 @@ mod tests {
                                     PdfObject::Integer(1), PdfObject::Integer(2),PdfObject::Integer(3)
                                 ])),
 
-        /* raot_15: (b"[<</a[1 2 3]>> <</b 1 2 R>>]", 28), FIXME */
+        raot_15: (b"[<</a[1 2 3]>> <</b 1 2 R>>]",
+            PdfObject::Array(vec![
+                PdfObject::Dictionary( NameKeyedMap::of(vec![
+                    PdfObject::Name( b"a"[..].to_owned()),
+                    PdfObject::Array( vec![PdfObject::Integer(1), PdfObject::Integer(2),PdfObject::Integer(3) ])
+                ]).unwrap().unwrap() ),
+
+                PdfObject::Dictionary( NameKeyedMap::of(vec![
+                    PdfObject::Name( b"b"[..].to_owned()),
+                    PdfObject::IndirectReference { number: 1, generation: 2 }
+                ]).unwrap().unwrap() ),
+            ])
+        ),
     }
 
     macro_rules! recognized_dict_object_test {
