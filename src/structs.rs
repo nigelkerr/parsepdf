@@ -17,6 +17,8 @@ pub enum ErrorCodes {
     ExpectedDictionaryStart,
     ExpectedDictionaryValue,
     NoValidDictionaryContents,
+    NonIntegerLengthInStreamDictionary,
+    NegativeLengthInStreamDictionary,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -36,6 +38,7 @@ pub enum PdfObject {
     Name( Vec<u8> ),
     Array( Vec<PdfObject> ),
     Dictionary( NameKeyedMap ),
+    Stream( NameKeyedMap, Vec<u8> ),
     IndirectReference { number: u32, generation: u32 },
 }
 
@@ -101,5 +104,107 @@ impl NameKeyedMap {
         }
 
         Ok(Some(map))
+    }
+
+    pub fn get(&self, k: PdfObject) -> Result<Option<PdfObject>, PdfError>
+    {
+        match k {
+            PdfObject::Name(x) => {
+                match self.map.get(&x) {
+                    Some(ref p) => {
+                        Ok(Some((*p).clone()))
+                    },
+                    None => {
+                        Ok(None)
+                    }
+                }
+            },
+            _ => {
+
+                // we treat this as an error now: we could treat it as None-worthy...
+                Err(PdfError { desc: "key wasnt a PdfObject::Name".to_string() })
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use nom::AsBytes;
+
+    #[test]
+    fn namekeyedmap_test() {
+        match NameKeyedMap::new().get( PdfObject::Name(b"A"[..].to_owned()) ) {
+            Ok(None) => {
+
+            },
+            _ => {
+                assert_eq!(111, 0);
+            }
+        }
+
+        match NameKeyedMap::of(  vec![PdfObject::Name(b"A"[..].to_owned()) ,  PdfObject::Name(b"B"[..].to_owned()) ] ) {
+            Ok(Some(n)) => {
+
+                match n.get(PdfObject::Name(b"A"[..].to_owned())) {
+
+                    Ok(Some(x)) => {
+                        assert_eq!(x, PdfObject::Name(b"B"[..].to_owned()));
+                    },
+                    _ => {
+                        assert_eq!(114,0);
+                    }
+                }
+
+            },
+            _ => {
+                assert_eq!(112, 0);
+            }
+        }
+
+        match NameKeyedMap::of(  vec![PdfObject::Name(b"A"[..].to_owned()) ,
+                                      PdfObject::Name(b"B"[..].to_owned()) ,
+                                      PdfObject::Name(b"A"[..].to_owned()) ,
+                                      PdfObject::Name(b"C"[..].to_owned()) ] ) {
+            Ok(Some(n)) => {
+
+                match n.get(PdfObject::Name(b"A"[..].to_owned())) {
+
+                    Ok(Some(x)) => {
+                        assert_eq!(x, PdfObject::Name(b"C"[..].to_owned()));
+                    },
+                    _ => {
+                        assert_eq!(115,0);
+                    }
+                }
+
+            },
+            _ => {
+                assert_eq!(112, 0);
+            }
+        }
+
+
+        match NameKeyedMap::of(  vec![PdfObject::Name(b"A"[..].to_owned())  ] ) {
+            Ok(Some(n)) => {
+
+                match n.get(PdfObject::Name(b"A"[..].to_owned())) {
+
+                    Ok(None) => {
+
+                    },
+                    _ => {
+                        assert_eq!(117,0);
+                    }
+                }
+
+            },
+            _ => {
+                assert_eq!(118, 0);
+            }
+        }
+
+
     }
 }
