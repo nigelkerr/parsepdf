@@ -94,17 +94,16 @@ mod tests {
                                     PdfObject::Integer(1), PdfObject::Integer(2),PdfObject::Integer(3)
                                 ])),
 
-        /* raot_15: (b"[<</a[1 2 3]>> <</b 1 2 R>>]", 28), */
+        /* raot_15: (b"[<</a[1 2 3]>> <</b 1 2 R>>]", 28), FIXME */
     }
 
-    /*
     macro_rules! recognized_dict_object_test {
         ($($name:ident: $value:expr,)*) => {
             $(
                 #[test]
                 fn $name() {
                     let (input, expected) = $value;
-                    assert_eq!(recognize_dictionary_object(input.as_bytes()).to_result().unwrap().len(),
+                    assert_eq!(dictionary_object(input.as_bytes()).to_result().unwrap(),
                         expected);
                 }
             )*
@@ -112,14 +111,19 @@ mod tests {
     }
 
     recognized_dict_object_test! {
-        rd_1: (b"<< >>", 5),
-        rd_2: (b"<</yo%yo\n1>>", 12),
-        rd_3: (b"<</a<</a<</a [1]>>>>>>", 22),
+        rd_1: (b"<< >>", PdfObject::Dictionary( NameKeyedMap::new() )),
+        rd_2: (b"<</yo%yo\n1>>", PdfObject::Dictionary( NameKeyedMap::of(
+                                    vec![
+                                        PdfObject::Name( b"yo"[..].to_owned()),
+                                        PdfObject::Integer( 1 )
+                                    ]
+                                ) )),
+/*        rd_3: (b"<</a<</a<</a [1]>>>>>>", 22),
         rd_4: (b"<</a<</a<</a 1>>>>>>", 20),
         rd_5: (b"<</a<</a<abcdef>>>>>", 20),
-        rd_6: (b"<</a<</a%yo\n<abcdef>>>>>", 24),
+        rd_6: (b"<</a<</a%yo\n<abcdef>>>>>", 24),*/
     }
-
+/*
     #[test]
     fn test_recognized_dict_object_errors () {
 
@@ -132,7 +136,6 @@ mod tests {
             recognize_dictionary_object(b"<</yo>>".as_bytes()).to_result().unwrap_err()
         );
     }
-
 */
 }
 
