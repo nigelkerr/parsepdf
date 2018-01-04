@@ -19,6 +19,8 @@ pub enum ErrorCodes {
     NoValidDictionaryContents,
     NonIntegerLengthInStreamDictionary,
     NegativeLengthInStreamDictionary,
+    SomethingHorribleAboutStreamDictionary,
+    CalledDictionaryAndGotSomethingElse,
 }
 
 #[derive(Debug, PartialEq, Eq)]

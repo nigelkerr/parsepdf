@@ -296,7 +296,7 @@ fn recognize_stream( input: &[u8], len: usize ) -> IResult<&[u8], Vec<u8> >
     }
 }
 
-/*
+
 
 // Stream objects § 7.3.8
 // these are a Dictionary that must have a /Length value, and the stream..endstream after it.
@@ -305,8 +305,8 @@ pub fn stream_object(input: &[u8]) -> IResult<&[u8], PdfObject>
 {
     match dictionary_object(input) {
         Done(rest, PdfObject::Dictionary(n)) => {
-            match n.get( PdfObject::Name( b"Length".to_owned() )) {
-                Some(PdfObject::Integer( x )) => {
+            match n.get( PdfObject::Name( b"Length"[..].to_owned() )) {
+                Ok(Some(PdfObject::Integer( x ))) => {
                     if x >= 0 {
 
                         match recognize_stream(rest, x as usize) {
@@ -325,14 +325,20 @@ pub fn stream_object(input: &[u8]) -> IResult<&[u8], PdfObject>
                         return Error(error_position!(ErrorKind::Custom(ErrorCodes::NegativeLengthInStreamDictionary as u32), input));
                     }
                 },
-                Some(p) => {
+                Ok(Some(_p)) => {
                     return Error(error_position!(ErrorKind::Custom(ErrorCodes::NonIntegerLengthInStreamDictionary as u32), input));
                 },
-                None => {
-                    return PdfObject::Dictionary(n);
+                Ok(None) => {
+                    return Done(rest, PdfObject::Dictionary(n));
+                },
+                Err(_err) => {
+                    return Error(error_position!(ErrorKind::Custom(ErrorCodes::SomethingHorribleAboutStreamDictionary as u32), input))
                 }
             }
         },
+        Done(_rest, _wut) => {
+            return Error(error_position!(ErrorKind::Custom(ErrorCodes::CalledDictionaryAndGotSomethingElse as u32), input));
+        }
         Incomplete(whatever) => {
             Incomplete(whatever)
         }
@@ -341,7 +347,7 @@ pub fn stream_object(input: &[u8]) -> IResult<&[u8], PdfObject>
         }
     }
 }
-*/
+
 
 
 #[cfg(test)]
@@ -582,6 +588,25 @@ mod tests {
             recognize_stream(b" stream\n__--__--__--__--", 16),
             Error(nom::Err::Code(nom::ErrorKind::RegexpFind))
         );
+
+    }
+
+
+    macro_rules! recognized_stream_object_test {
+        ($($name:ident: $value:expr,)*) => {
+            $(
+                #[test]
+                fn $name() {
+                    let (input, expected) = $value;
+                    assert_eq!(stream_object(input.as_bytes()).to_result().unwrap(),
+                        expected);
+                }
+            )*
+        }
+    }
+
+    recognized_stream_object_test! {
+        rsot_1: (b"<< >>", PdfObject::Dictionary( NameKeyedMap::new() )), // because if you dont have a Length you're just a dictionary
 
     }
 }
