@@ -225,7 +225,7 @@ pub fn dictionary_object(input: &[u8]) -> IResult<&[u8], PdfObject>
                             return Incomplete(whatever);
                         }
                         _ => {
-                            // ugh
+                            // ugh FIXME
                         }
                     };
                 }
@@ -237,12 +237,111 @@ pub fn dictionary_object(input: &[u8]) -> IResult<&[u8], PdfObject>
 }
 
 
+// not quite the normal api, since we have an alleged /Length by which to
+// measure the stream.
+
+fn recognize_stream( input: &[u8], len: usize ) -> IResult<&[u8], Vec<u8> >
+{
+    let mut index = 0;
+
+    // rules about which ws?
+    index += skip_whitespace(input);
+
+    // special case the len == 0
+    if len == 0 {
+        match re_bytes_find!(&input[index..], r"^stream(\r\n|\n)(\r\n|\r|\n)?endstream") {
+            Done(rest, _boilerplate) => {
+                return Done(rest, b""[..].to_owned());
+            },
+            Incomplete(whatever) => {
+                return Incomplete(whatever);
+            },
+            Error(err) => {
+                return Error(err);
+            }
+        }
+    }
+
+
+    match re_bytes_find!(&input[index..], r"^stream(\r\n|\n)") { // just these two line ending options
+        Done(rest, _stream) => {
+            match take!(&rest, len) {
+                Done(rest2, bytes_of_stream) => {
+                    match re_bytes_find!(&rest2, r"^(\r\n|\r|\n)endstream") {
+                        Done(rest3, _endstream) => {
+                            return Done(rest3, bytes_of_stream[..].to_owned() );
+                        },
+                        Incomplete(whatever) => {
+                            return Incomplete(whatever);
+                        },
+                        Error(err) => {
+                            return Error(err);
+                        }
+                    }
+                },
+                Incomplete(whatever) => {
+                    return Incomplete(whatever);
+                },
+                Error(err) => {
+                    return Error(err);
+                }
+            }
+        },
+        Incomplete(whatever) => {
+            return Incomplete(whatever);
+        },
+        Error(err) => {
+            return Error(err);
+        }
+    }
+}
+
+/*
+
 // Stream objects § 7.3.8
-// these are a Dictionary that must have a /Length value, and the stream..endstream after it
+// these are a Dictionary that must have a /Length value, and the stream..endstream after it.
 
+pub fn stream_object(input: &[u8]) -> IResult<&[u8], PdfObject>
+{
+    match dictionary_object(input) {
+        Done(rest, PdfObject::Dictionary(n)) => {
+            match n.get( PdfObject::Name( b"Length".to_owned() )) {
+                Some(PdfObject::Integer( x )) => {
+                    if x >= 0 {
 
+                        match recognize_stream(rest, x as usize) {
+                            Done(rest2, v) => {
+                                return Done(rest2, PdfObject::Stream(n, v));
+                            },
+                            Incomplete(whatever) => {
+                                return Incomplete(whatever);
+                            },
+                            Error(err) => {
+                                return Error(err);
+                            }
+                        }
 
-
+                    } else {
+                        return Error(error_position!(ErrorKind::Custom(ErrorCodes::NegativeLengthInStreamDictionary as u32), input));
+                    }
+                },
+                Some(p) => {
+                    return Error(error_position!(ErrorKind::Custom(ErrorCodes::NonIntegerLengthInStreamDictionary as u32), input));
+                },
+                None => {
+                    return PdfObject::Dictionary(n);
+                }
+            }
+        },
+        Incomplete(whatever) => {
+            Incomplete(whatever)
+        }
+        Error(err) => {
+            Error(err)
+        }
+    }
+}
+*/
 
 
 #[cfg(test)]
@@ -457,6 +556,33 @@ mod tests {
             nom::Err::Position(nom::ErrorKind::Custom(ErrorCodes::ExpectedDictionaryValue as u32), b"<</yo>>".as_bytes()),
             dictionary_object(b"<</yo>>".as_bytes()).to_result().unwrap_err()
         );
+    }
+
+
+    #[test]
+    fn test_recognize_stream() {
+        // the indication from samples in the spec ( § 8.9.5.4 Alternate Images )
+        // suggests that there is not necessarily an additional EOL in this instance.
+        assert_eq!(
+            recognize_stream(b" stream\r\nendstream", 0),
+            Done(b"".as_bytes(), b""[..].to_owned())
+        );
+
+        assert_eq!(
+            recognize_stream(b" stream\n__--__--__--__--\r\nendstream  ", 16),
+            Done(b"  ".as_bytes(), b"__--__--__--__--"[..].to_owned())
+        );
+
+        assert_eq!(
+            recognize_stream(b" stream\n__--__--", 16),
+            Incomplete(Needed::Size(16))
+        );
+
+        assert_eq!(
+            recognize_stream(b" stream\n__--__--__--__--", 16),
+            Error(nom::Err::Code(nom::ErrorKind::RegexpFind))
+        );
+
     }
 }
 
