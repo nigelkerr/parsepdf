@@ -133,7 +133,6 @@ impl NameKeyedMap {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nom::AsBytes;
 
     #[test]
     fn namekeyedmap_test() {

@@ -353,7 +353,6 @@ pub fn stream_object(input: &[u8]) -> IResult<&[u8], PdfObject>
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nom::AsBytes;
 
     macro_rules! recognized_array_object_test {
         ($($name:ident: $value:expr,)*) => {
@@ -598,8 +597,15 @@ mod tests {
                 #[test]
                 fn $name() {
                     let (input, expected) = $value;
-                    assert_eq!(stream_object(input.as_bytes()).to_result().unwrap(),
-                        expected);
+                    match stream_object(input.as_bytes()) {
+                        Done(_rest, x) => {
+                            assert_eq!(x, expected);
+
+                        },
+                        _ => {
+                            assert_eq!(150, 0);
+                        }
+                    }
                 }
             )*
         }
@@ -607,7 +613,18 @@ mod tests {
 
     recognized_stream_object_test! {
         rsot_1: (b"<< >>", PdfObject::Dictionary( NameKeyedMap::new() )), // because if you dont have a Length you're just a dictionary
-
+        rsot_2: (b"<< /Length 20 >>\nstream\n01234567890123456789\nendstream\n",
+            PdfObject::Stream(
+                NameKeyedMap::of( vec![PdfObject::Name(b"Length"[..].to_owned()), PdfObject::Integer(20)] ).unwrap().unwrap(),
+                b"01234567890123456789"[..].to_owned()
+            )
+        ),
+        rsot_3: (b"<< /Length 20 >>\r\nstream\r\n01234567890123456789\r\nendstream\r\n",
+            PdfObject::Stream(
+                NameKeyedMap::of( vec![PdfObject::Name(b"Length"[..].to_owned()), PdfObject::Integer(20)] ).unwrap().unwrap(),
+                b"01234567890123456789"[..].to_owned()
+            )
+        ),
     }
 }
 
