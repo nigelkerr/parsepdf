@@ -1,6 +1,8 @@
 use std;
 use std::fmt;
 use std::collections::HashMap;
+use std::collections::BTreeMap;
+use std::collections::BTreeSet;
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum ErrorCodes {
@@ -21,6 +23,7 @@ pub enum ErrorCodes {
     NegativeLengthInStreamDictionary,
     SomethingHorribleAboutStreamDictionary,
     CalledDictionaryAndGotSomethingElse,
+    FirstObjectNumberInXrefNotZero,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -41,7 +44,7 @@ pub enum PdfObject {
     Array( Vec<PdfObject> ),
     Dictionary( NameKeyedMap ),
     Stream( NameKeyedMap, Vec<u8> ),
-    IndirectReference { number: u32, generation: u32 },
+    IndirectReference { number: u32, generation: u16 },
 }
 
 #[derive(Debug, Clone)]
@@ -125,6 +128,70 @@ impl NameKeyedMap {
 
                 // we treat this as an error now: we could treat it as None-worthy...
                 Err(PdfError { desc: "key wasnt a PdfObject::Name".to_string() })
+            }
+        }
+    }
+}
+
+/// contain the information represented in a given cross-reference table.
+/// capturing what exactly the original representation was is not a goal,
+/// capturing the information is.
+#[derive(Debug, PartialEq, Eq)]
+pub struct CrossReferenceTable {
+    object_offsets: BTreeMap<u32, usize>,
+    object_generations: BTreeMap<u32, u16>,
+    free_objects: BTreeSet<u32>,
+}
+
+impl CrossReferenceTable {
+    pub fn new() -> CrossReferenceTable {
+        CrossReferenceTable {
+            object_offsets: BTreeMap::new(),
+            object_generations: BTreeMap::new(),
+            free_objects: BTreeSet::new(),
+        }
+    }
+
+    pub fn add_in_use(&mut self, number:u32, generation:u16, offset:usize) {
+        self.object_generations.insert(number, generation);
+        self.object_offsets.insert(number, offset);
+    }
+    pub fn add_free(&mut self, number:u32, generation: u16) {
+        self.object_generations.insert(number, generation);
+        self.free_objects.insert(number);
+    }
+
+    pub fn count_in_use(&self) -> usize {
+        self.object_offsets.len()
+    }
+    pub fn count_free(&self) -> usize {
+        self.free_objects.len()
+    }
+
+    pub fn in_use(&self) -> Vec<u32> {
+        self.object_offsets.keys().cloned().collect()
+    }
+    pub fn free(&self) -> Vec<u32> {
+        self.free_objects.iter().cloned().collect()
+    }
+
+    pub fn generation_of(&self, number: u32) -> Option<u16> {
+        match self.object_generations.get(&number) {
+            Some(ref x) => {
+                Some((*x).clone())
+            },
+            _ => {
+                None
+            }
+        }
+    }
+    pub fn offset_of(&self, number: u32) -> Option<usize> {
+        match self.object_offsets.get(&number) {
+            Some(ref x) => {
+                Some((*x).clone())
+            },
+            _ => {
+                None
             }
         }
     }

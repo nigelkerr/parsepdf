@@ -10,6 +10,7 @@ use std::str::FromStr;
 use structs::ErrorCodes;
 use structs::PdfObject;
 use structs::PdfVersion;
+use structs::CrossReferenceTable;
 
 named!(pub pdf_line_ending_by_macro<&[u8],&[u8]>,
     alt!(
@@ -549,7 +550,91 @@ named!(pub indirect_reference<&[u8],PdfObject>,
     )
 );
 
+#[inline]
+fn number_from_digits(digits: &[u8]) -> u64 {
+    FromStr::from_str(str::from_utf8(digits).unwrap()).unwrap()
+}
 
+pub fn xref_table(input: &[u8]) -> IResult<&[u8], CrossReferenceTable> {
+
+    // starts with xref
+    // then 1 or more cross-ref subsections
+    // no explicit closer, just on to the next thing which ain't this here.
+
+    match re_bytes_find!(input, r"^xref(\r\n|\r|\n)") {
+        Done(rest, _xref) => {
+            let mut xrt: CrossReferenceTable = CrossReferenceTable::new();
+
+            let mut linput = rest;
+            let mut first: bool = true;
+
+            'outer:
+            loop {
+                match re_bytes_capture!(linput, r"^(0|[123456789]\d*) ([123456789]\d*)(\r\n|\r|\n)") {
+                    Done(rest2, vec2) => {
+                        // unwrapping here feels safe given the matching
+                        let start: u32 = number_from_digits(vec2[1]) as u32;
+
+                        if first && start != 0 {
+                            return Error(error_position!(ErrorKind::Custom(ErrorCodes::FirstObjectNumberInXrefNotZero as u32), input));
+                        }
+                        first = false;
+
+                        let how_many: usize = number_from_digits(vec2[2]) as usize;
+                        linput = rest2;
+
+                        for itr in 0..how_many {
+
+                            match re_bytes_capture!(linput, r"^(\d{10}) (\d{5}) ([nf])( \r| \n|\r\n)") {
+                                Done(rest3, vec3) => {
+
+                                    let num0: u64 = number_from_digits(vec3[1]);
+                                    let num1: u16 = number_from_digits(vec3[2]) as u16;
+                                    let in_use: bool = vec3[3][0] == b'n';
+
+                                    if in_use {
+                                        xrt.add_in_use(start+(itr as u32), num1, num0 as usize);
+                                    } else {
+                                        xrt.add_free(start+(itr as u32), num1);
+                                        // we would do some inspecting of num0 here if the current
+                                        // spec cared anymore: the old-style linked list and the
+                                        // new style mean we kind of dont care anymore.
+                                    }
+
+                                    linput = rest3;
+                                },
+                                Incomplete(whatever) => {
+                                    return Incomplete(whatever);
+                                },
+                                Error(err) => {
+                                    return Error(err);
+                                }
+                            }
+
+                        }
+
+                    },
+                    Incomplete(whatever) => {
+                        return Incomplete(whatever);
+                    },
+                    Error(err) => {
+                        if ! first {
+                            return Done(linput, xrt);
+                        }
+                        return Error(err);
+                    }
+                }
+            }
+        },
+        Incomplete(whatever) => {
+            return Incomplete(whatever)
+        },
+        Error(err) => {
+            return Error(err)
+        }
+    }
+
+}
 
 #[cfg(test)]
 mod tests {
@@ -828,4 +913,64 @@ mod tests {
         assert_eq!(2, recognize_some_ws(b" \t".as_bytes()).to_result().unwrap().len());
         assert_eq!(9, recognize_some_ws(b" \t \r\n \n \r".as_bytes()).to_result().unwrap().len());
     }
+
+    #[test]
+    fn test_xref_table_recognize() {
+        let x2 = b"xref\n0 6\n0000000003 65535 f \n0000000017 00000 n \n0000000081 00000 n \n0000000000 00007 f \n0000000331 00000 n \n0000000409 00000 n \n";
+
+        match xref_table(x2[..].as_bytes()) {
+            Done(_rest, xrt) => {
+                assert_eq!(4, xrt.count_in_use());
+                assert_eq!(2, xrt.count_free());
+                assert_eq!(vec![1,2,4,5], xrt.in_use());
+                assert_eq!(vec![0,3], xrt.free());
+                assert_eq!(Some(65535), xrt.generation_of(0));
+                assert_eq!(Some(0), xrt.generation_of(1));
+                assert_eq!(Some(0), xrt.generation_of(2));
+                assert_eq!(Some(7), xrt.generation_of(3));
+                assert_eq!(Some(0), xrt.generation_of(4));
+                assert_eq!(Some(0), xrt.generation_of(5));
+                assert_eq!(None, xrt.offset_of(0));
+                assert_eq!(Some(17), xrt.offset_of(1));
+                assert_eq!(Some(81), xrt.offset_of(2));
+                assert_eq!(None, xrt.offset_of(3));
+                assert_eq!(Some(331), xrt.offset_of(4));
+                assert_eq!(Some(409), xrt.offset_of(5));
+            },
+            _ => {
+                assert_eq!(151,0);
+            }
+        }
+
+        let x3 =  b"xref\n0 1\n0000000000 65535 f \n3 1\n0000025325 00000 n \n23 2\n0000025518 00002 n \n0000025635 00000 n \n30 1\n0000025777 00000 n \n";
+        match xref_table(x3[..].as_bytes()) {
+            Done(_rest, xrt) => {
+                assert_eq!(4, xrt.count_in_use());
+                assert_eq!(1, xrt.count_free());
+                assert_eq!(vec![3,23,24,30], xrt.in_use());
+                assert_eq!(vec![0], xrt.free());
+                assert_eq!(Some(65535), xrt.generation_of(0));
+                assert_eq!(Some(0), xrt.generation_of(3));
+                assert_eq!(Some(2), xrt.generation_of(23));
+                assert_eq!(Some(0), xrt.generation_of(24));
+                assert_eq!(Some(0), xrt.generation_of(30));
+
+                assert_eq!(None, xrt.offset_of(0));
+                assert_eq!(Some(25325), xrt.offset_of(3));
+                assert_eq!(Some(25518), xrt.offset_of(23));
+                assert_eq!(Some(25635), xrt.offset_of(24));
+                assert_eq!(Some(25777), xrt.offset_of(30));
+
+                assert_eq!(None, xrt.offset_of(252));
+                assert_eq!(None, xrt.offset_of(1024));
+                assert_eq!(None, xrt.generation_of(252));
+                assert_eq!(None, xrt.generation_of(1024));
+            },
+            _ => {
+                assert_eq!(152,0);
+            }
+        }
+
+    }
+
 }
