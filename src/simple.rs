@@ -12,6 +12,8 @@ use structs::PdfObject;
 use structs::PdfVersion;
 use structs::CrossReferenceTable;
 
+use nesting::dictionary_object;
+
 named!(pub pdf_line_ending_by_macro<&[u8],&[u8]>,
     alt!(
         complete!(tag!(b"\r\n")) |
@@ -550,6 +552,9 @@ named!(pub indirect_reference<&[u8],PdfObject>,
     )
 );
 
+
+// § 7.5.4 Cross-reference table
+
 #[inline]
 fn number_from_digits(digits: &[u8]) -> u64 {
     FromStr::from_str(str::from_utf8(digits).unwrap()).unwrap()
@@ -633,7 +638,49 @@ pub fn xref_table(input: &[u8]) -> IResult<&[u8], CrossReferenceTable> {
             return Error(err)
         }
     }
+}
 
+// § 7.5.5 File trailer
+// this here is independent of how we *locate* the trailer, which needs to be
+// implemented of.
+
+// get the trailer Dictionary and the offset of the xref we need to look for.
+
+pub fn file_trailer(input: &[u8]) -> IResult<&[u8], (PdfObject,usize)> {
+
+    // need to make these patterns stricter
+    match re_bytes_find!(input, r"^\s*trailer\s*(\r\n|\r|\n)") {
+        Done(rest, _trailer) => {
+            match dictionary_object(rest) {
+                Done(rest2, dictionary) => {
+                    match re_bytes_capture!(rest2, r"^\s*startxref\s*(\r\n|\r|\n)([123456789]\d*)\s*(\r\n|\r|\n)%%EOF\s*") {
+                        Done( rest3, vec3 ) => {
+                            let startxref = number_from_digits(vec3[2]) as usize;
+                            return Done(rest3, (dictionary, startxref))
+                        },
+                        Incomplete(whatever) => {
+                            return Incomplete(whatever);
+                        },
+                        Error(err) => {
+                            return Error(err);
+                        }
+                    }
+                },
+                Incomplete(whatever) => {
+                    return Incomplete(whatever);
+                },
+                Error(err) => {
+                    return Error(err);
+                }
+            }
+        },
+        Incomplete(whatever) => {
+            return Incomplete(whatever);
+        },
+        Error(err) => {
+            return Error(err);
+        }
+    }
 }
 
 #[cfg(test)]
@@ -916,7 +963,7 @@ mod tests {
 
     #[test]
     fn test_xref_table_recognize() {
-        let x2 = b"xref\n0 6\n0000000003 65535 f \n0000000017 00000 n \n0000000081 00000 n \n0000000000 00007 f \n0000000331 00000 n \n0000000409 00000 n \n";
+        let x2 = b"xref\n0 6\n0000000003 65535 f \n0000000017 00000 n \n0000000081 00000 n \n0000000000 00007 f \n0000000331 00000 n \n0000000409 00000 n \ntrailer";
 
         match xref_table(x2[..].as_bytes()) {
             Done(_rest, xrt) => {
@@ -942,7 +989,7 @@ mod tests {
             }
         }
 
-        let x3 =  b"xref\n0 1\n0000000000 65535 f \n3 1\n0000025325 00000 n \n23 2\n0000025518 00002 n \n0000025635 00000 n \n30 1\n0000025777 00000 n \n";
+        let x3 =  b"xref\n0 1\n0000000000 65535 f \n3 1\n0000025325 00000 n \n23 2\n0000025518 00002 n \n0000025635 00000 n \n30 1\n0000025777 00000 n \ntrailer";
         match xref_table(x3[..].as_bytes()) {
             Done(_rest, xrt) => {
                 assert_eq!(4, xrt.count_in_use());
@@ -971,6 +1018,36 @@ mod tests {
             }
         }
 
+    }
+
+    #[test]
+    fn test_basic_trailer() {
+
+        let trailer = b"trailer\n<</Size 22/Root 2 0 R/Info 1 0 R/ID [<81b14aafa313db63dbd6f981e49f94f4><81b14aafa313db63dbd6f981e49f94f4>]>>\nstartxref\n18799\n%%EOF\n";
+
+
+        println!("ugh: {:?}", file_trailer(&trailer[..]));
+
+        match file_trailer(&trailer[..]) {
+
+            Done(_rest, (dict, offset)) => {
+
+                assert_eq!(18799 as usize, offset);
+                match dict {
+                    PdfObject::Dictionary(nkm) => {
+                        assert_eq!(PdfObject::Integer(22), nkm.get(PdfObject::Name(b"Size"[..].to_owned())).unwrap().unwrap());
+                    },
+                    _ => {
+                        assert_eq!(200, 0);
+                    }
+                }
+
+            },
+            _ => {
+                assert_eq!(201,0);
+            }
+
+        }
     }
 
 }
