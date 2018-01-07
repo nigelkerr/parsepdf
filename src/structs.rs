@@ -3,6 +3,10 @@ use std::fmt;
 use std::collections::HashMap;
 use std::collections::BTreeMap;
 use std::collections::BTreeSet;
+use std::error::Error;
+use std::io;
+
+
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum ErrorCodes {
@@ -47,9 +51,10 @@ pub enum PdfObject {
     IndirectReference { number: u32, generation: u16 },
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct PdfError {
     pub desc: String,
+    pub underlying: Option<Box<Error>>
 }
 
 impl fmt::Display for PdfError {
@@ -60,6 +65,15 @@ impl fmt::Display for PdfError {
 impl std::error::Error for PdfError {
     fn description(&self) -> &str {
         &self.desc
+    }
+    fn cause(&self) -> Option<&std::error::Error> {
+        self.underlying.as_ref().map(|e| &**e)
+    }
+}
+
+impl From<io::Error> for PdfError {
+    fn from(o: io::Error) -> Self {
+        PdfError {desc: "from a std::io::Error".to_string(), underlying:Some(Box::new(o))}
     }
 }
 
@@ -91,7 +105,7 @@ impl NameKeyedMap {
                 }
             }
             _ => {
-                Err(PdfError { desc: "key wasnt a PdfObject::Name".to_string() })
+                Err(PdfError { desc: "key wasnt a PdfObject::Name".to_string(), underlying: None })
             }
         }
     }
@@ -127,7 +141,7 @@ impl NameKeyedMap {
             _ => {
 
                 // we treat this as an error now: we could treat it as None-worthy...
-                Err(PdfError { desc: "key wasnt a PdfObject::Name".to_string() })
+                Err(PdfError { desc: "key wasnt a PdfObject::Name".to_string(), underlying: None })
             }
         }
     }

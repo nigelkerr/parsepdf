@@ -2,6 +2,18 @@
 
 Try to learn nom, rust, and the PDF 2.0 spec by parsing PDFs.
 
+## 2018-01-07
+
+started describe-pdf, my intent being: use the library functions to parse then describe an input PDF, in the hopes of
+uncovering better ways to implement the library functions, or ways to wrap the PdfObjects for more ergonomic use.
+
+learning various things about rust, though this feels like i have a long row of coffee tables ahead of me to trip over.
+
+i wonder about using nom 4.0-ɑ1.
+
+i wonder when this is interesting enough to release.  the PDF 2.0 spec is a large document with a lot of specification in
+it.
+
 ## 2018-01-04
 
 I think all the Object types are covered at this point, even Streams (so, § 7.3 Objects).

@@ -646,7 +646,7 @@ pub fn xref_table(input: &[u8]) -> IResult<&[u8], CrossReferenceTable> {
 
 // get the trailer Dictionary and the offset of the xref we need to look for.
 
-pub fn file_trailer(input: &[u8]) -> IResult<&[u8], (PdfObject,usize)> {
+pub fn file_trailer(input: &[u8]) -> IResult<&[u8], (PdfObject,u64)> {
 
     // need to make these patterns stricter
     match re_bytes_find!(input, r"^\s*trailer\s*(\r\n|\r|\n)") {
@@ -655,7 +655,7 @@ pub fn file_trailer(input: &[u8]) -> IResult<&[u8], (PdfObject,usize)> {
                 Done(rest2, dictionary) => {
                     match re_bytes_capture!(rest2, r"^\s*startxref\s*(\r\n|\r|\n)([123456789]\d*)\s*(\r\n|\r|\n)%%EOF\s*") {
                         Done( rest3, vec3 ) => {
-                            let startxref = number_from_digits(vec3[2]) as usize;
+                            let startxref = number_from_digits(vec3[2]) as u64;
                             return Done(rest3, (dictionary, startxref))
                         },
                         Incomplete(whatever) => {
@@ -1025,14 +1025,11 @@ mod tests {
 
         let trailer = b"trailer\n<</Size 22/Root 2 0 R/Info 1 0 R/ID [<81b14aafa313db63dbd6f981e49f94f4><81b14aafa313db63dbd6f981e49f94f4>]>>\nstartxref\n18799\n%%EOF\n";
 
-
-        println!("ugh: {:?}", file_trailer(&trailer[..]));
-
         match file_trailer(&trailer[..]) {
 
             Done(_rest, (dict, offset)) => {
 
-                assert_eq!(18799 as usize, offset);
+                assert_eq!(18799 as u64, offset);
                 match dict {
                     PdfObject::Dictionary(nkm) => {
                         assert_eq!(PdfObject::Integer(22), nkm.get(PdfObject::Name(b"Size"[..].to_owned())).unwrap().unwrap());
