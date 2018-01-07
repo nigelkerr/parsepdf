@@ -5,8 +5,7 @@ use std::collections::BTreeMap;
 use std::collections::BTreeSet;
 use std::error::Error;
 use std::io;
-
-
+use std::str;
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum ErrorCodes {
@@ -49,6 +48,64 @@ pub enum PdfObject {
     Dictionary( NameKeyedMap ),
     Stream( NameKeyedMap, Vec<u8> ),
     IndirectReference { number: u32, generation: u16 },
+}
+
+impl fmt::Display for PdfObject {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
+
+            PdfObject::Null => {
+                write!(f, "PdfObject::Null")
+            },
+            PdfObject::Boolean(ref v) => {
+                write!(f, "PdfObject::Boolean({})", v)
+            },
+            PdfObject::Integer(ref v) => {
+                write!(f, "PdfObject::Integer({})", v)
+            },
+            PdfObject::Float(ref v) => {
+                write!(f, "PdfObject::Float({})", v)
+            },
+            PdfObject::Comment(ref v) => {
+                write!(f, "PdfObject::Comment({:?})", &*v)
+            },
+            PdfObject::String(ref v) => {
+                // if we knew the encoding, we could use it, but alas
+                write!(f, "PdfObject::String({:?})", &*v)
+            },
+            PdfObject::Name(ref v) => {
+                // here we are directed to use utf-8 (end of § 7.3.5 and
+                // Note 4 thereof)
+                write!(f, "PdfObject::Name(/{})", str::from_utf8(&*v).unwrap_or("not-utf-8"))
+            },
+            PdfObject::Array(ref v) => {
+                write!(f, "PdfObject::Array[\n")?;
+                for obj in v {
+                    write!(f, "\t")?;
+                    obj.fmt(f)?;
+                    write!(f, "\n")?;
+                }
+                write!(f, "]")
+            },
+            PdfObject::Dictionary(ref nkm) => {
+                write!(f, "PdfObject::Dictionary<<\n")?;
+                for name in nkm.names() {
+                    write!(f, "\t")?;
+                    name.fmt(f)?;
+                    write!(f, "\n\t\t")?;
+                    nkm.get(name).unwrap().unwrap().fmt(f)?;
+                    write!(f,"\n")?;
+                }
+                write!(f, ">>")
+            },
+            PdfObject::Stream(ref nkm, ref _strm) => {
+                write!(f, "stream!")
+            },
+            PdfObject::IndirectReference{ number: n, generation: g } => {
+                write!(f, "PdfObject::IndirectReference({} {} R)", n, g)
+            }
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -145,11 +202,16 @@ impl NameKeyedMap {
             }
         }
     }
+
+    pub fn names(&self) -> Vec<PdfObject> {
+        self.map.keys().map(|vecu8| PdfObject::Name(vecu8.clone())).collect()
+    }
 }
 
 /// contain the information represented in a given cross-reference table.
 /// capturing what exactly the original representation was is not a goal,
 /// capturing the information is.
+/// This probably not suitable for building and writing new files.
 #[derive(Debug, PartialEq, Eq)]
 pub struct CrossReferenceTable {
     object_offsets: BTreeMap<u32, usize>,
@@ -211,6 +273,24 @@ impl CrossReferenceTable {
     }
 }
 
+impl fmt::Display for CrossReferenceTable {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "CrossReferenceTable[\n")?;
+        for objnum in self.in_use() {
+            write!(f, "\t{}: offset {} gen {}\n",
+                   objnum,
+                   self.offset_of(objnum).unwrap_or(<usize>::max_value()),
+                   self.generation_of(objnum).unwrap_or(<u16>::max_value()))?
+        }
+        for freenum in self.free() {
+            write!(f, "\t{}: free gen {}\n",
+                   freenum,
+                   self.generation_of(freenum).unwrap_or(<u16>::max_value()))?
+        }
+        write!(f, "]\n")
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -260,6 +340,8 @@ mod tests {
                         assert_eq!(115,0);
                     }
                 }
+
+                println!("{:?}", n.names());
 
             },
             _ => {

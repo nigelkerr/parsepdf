@@ -43,9 +43,10 @@ fn process_file(possible_file: String) -> Result<(), PdfError> {
         let file_len = metadata.len();
         let mut file = File::open(possible_file).unwrap();
 
-        let (trailer_dict, xref_table) = get_trailer_and_xref(&mut file, file_len)?;
-        println!("trailer dictionary: {:?}", trailer_dict);
-        println!("xref table: {:?}", xref_table);
+        let (trailer_dict, xref_table, startxref) = get_trailer_and_xref(&mut file, file_len)?;
+        println!("last xref starts at {}", startxref);
+        println!("trailer dictionary: {}", &trailer_dict);
+        println!("xref table: {}", xref_table);
         Ok(())
 
     } else {
@@ -53,14 +54,14 @@ fn process_file(possible_file: String) -> Result<(), PdfError> {
     }
 }
 
-fn get_trailer_and_xref(file: &mut File, file_len: u64) -> Result<(PdfObject, CrossReferenceTable), PdfError> {
+fn get_trailer_and_xref(file: &mut File, file_len: u64) -> Result<(PdfObject, CrossReferenceTable, u64), PdfError> {
     let last_kaye = get_byte_array_from_file(file, file_len - 1024, 1024)?;
     let (dict, startxref) = parse_trailer(&last_kaye)?;
     let xref_bytes = get_byte_array_from_file(file, startxref, (file_len - startxref))?;
     match xref_table(&xref_bytes) {
         Done(_rest, crt) => {
             // assert something about _rest ?
-            Ok((dict, crt))
+            Ok((dict, crt, startxref))
         }
         Incomplete(_whatever) => {
             Err(PdfError { desc: "not enough bytes for xref_table?".to_string(), underlying: None })
