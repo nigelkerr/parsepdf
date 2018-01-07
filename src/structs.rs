@@ -43,7 +43,7 @@ pub enum PdfObject {
     Integer (i64 ),
     Float (f64 ),
     Comment ( Vec<u8> ),  // perhaps get rid of Comment and make it consumable like ws
-    String ( Vec<u8> ),
+    String ( Vec<u8> ), // i am not convinced that the in-file representation form is significant (hex vs literal)
     Name( Vec<u8> ),
     Array( Vec<PdfObject> ),
     Dictionary( NameKeyedMap ),
