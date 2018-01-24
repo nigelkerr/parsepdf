@@ -50,6 +50,13 @@ pub enum PdfObject {
     IndirectReference { number: u32, generation: u16 },
 }
 
+#[derive(Debug, PartialEq, Clone)]
+pub struct IndirectObject {
+    pub obj: PdfObject,
+    pub number: u32,
+    pub generation: u16
+}
+
 impl fmt::Display for PdfObject {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
@@ -98,8 +105,8 @@ impl fmt::Display for PdfObject {
                 }
                 write!(f, ">>")
             },
-            PdfObject::Stream(ref nkm, ref _strm) => {
-                write!(f, "stream!")
+            PdfObject::Stream(ref _nkm, ref _strm) => {
+                write!(f, "a stream!")
             },
             PdfObject::IndirectReference{ number: n, generation: g } => {
                 write!(f, "PdfObject::IndirectReference({} {} R)", n, g)

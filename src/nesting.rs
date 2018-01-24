@@ -1,5 +1,8 @@
 extern crate nom;
 
+use std::str;
+use std::str::FromStr;
+
 use nom::*;
 use nom::ErrorKind;
 use nom::IResult::*;
@@ -7,6 +10,7 @@ use nom::IResult::*;
 use structs::ErrorCodes;
 use structs::PdfObject;
 use structs::NameKeyedMap;
+use structs::IndirectObject;
 
 use simple::*;
 
@@ -348,6 +352,40 @@ pub fn stream_object(input: &[u8]) -> IResult<&[u8], PdfObject>
     }
 }
 
+// § 7.10 Indirect Objects
+// this is more like arrays and dictionaries for the containment than otherwise,
+// so i put them here.
+
+// incomplete may fox us here
+
+//pub fn indirect_object(input: &[u8]) -> IResult<&[u8], IndirectObject>
+//{
+named!(pub indirect_object<&[u8],IndirectObject>,
+    do_parse!(
+        num: map_res!(map_res!(re_bytes_find!(r"^[123456789]\d*"), str::from_utf8), FromStr::from_str) >>
+        tag!(b" ") >>
+        gen: map_res!(map_res!(recognize!(digit), str::from_utf8), FromStr::from_str) >>
+        tag!(b" obj") >>
+        take_while1!( is_pdf_whitespace ) >>
+        o: alt!(
+            stream_object |
+            array_object |
+            indirect_reference |
+            name_object |
+            hexadecimal_string |
+            literal_string |
+            signed_integer |
+            signed_float |
+            boolean |
+            null_object
+        ) >>
+        take_while!( is_pdf_whitespace ) >>
+        tag!(b"endobj") >>
+        (
+            IndirectObject{ obj: o, number: num, generation: gen }
+        )
+    )
+);
 
 
 #[cfg(test)]
@@ -625,6 +663,14 @@ mod tests {
                 b"01234567890123456789"[..].to_owned()
             )
         ),
+    }
+
+    #[test]
+    fn test_indirect_object() {
+        assert_eq!(
+            IndirectObject{ obj: PdfObject::String( b"xyzzy"[..].to_owned()), number: 1 as u32, generation: 0 as u16 },
+            indirect_object(b"1 0 obj\n(xyzzy)endobj".as_bytes()).to_result().unwrap()
+        );
     }
 }
 
