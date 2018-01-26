@@ -47,6 +47,12 @@ fn process_file(possible_file: String) -> Result<(), PdfError> {
         println!("last xref starts at {}", startxref);
         println!("trailer dictionary: {}", &trailer_dict);
         println!("xref table: {}", xref_table);
+
+//        for object_number in xref_table.in_use() {
+//            let obj_bytes = get_byte_array_from_file(file, xref_table.offset_of(object_number), xref_table.max_length_of(object_number))?;
+//            ind_obj = indirect_object()
+//        }
+
         Ok(())
 
     } else {
@@ -59,8 +65,9 @@ fn get_trailer_and_xref(file: &mut File, file_len: u64) -> Result<(PdfObject, Cr
     let (dict, startxref) = parse_trailer(&last_kaye)?;
     let xref_bytes = get_byte_array_from_file(file, startxref, (file_len - startxref))?;
     match xref_table(&xref_bytes) {
-        Done(_rest, crt) => {
+        Done(_rest, mut crt) => {
             // assert something about _rest ?
+            crt.pdf_length(file_len as usize);
             Ok((dict, crt, startxref))
         }
         Incomplete(_whatever) => {

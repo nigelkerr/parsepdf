@@ -224,6 +224,8 @@ pub struct CrossReferenceTable {
     object_offsets: BTreeMap<u32, usize>,
     object_generations: BTreeMap<u32, u16>,
     free_objects: BTreeSet<u32>,
+    offsets_to_objects: BTreeMap<usize, u32>,
+    length: usize
 }
 
 impl CrossReferenceTable {
@@ -232,12 +234,19 @@ impl CrossReferenceTable {
             object_offsets: BTreeMap::new(),
             object_generations: BTreeMap::new(),
             free_objects: BTreeSet::new(),
+            offsets_to_objects: BTreeMap::new(),
+            length: 0 as usize,
         }
+    }
+
+    pub fn pdf_length(&mut self, length: usize) {
+        self.length = length;
     }
 
     pub fn add_in_use(&mut self, number:u32, generation:u16, offset:usize) {
         self.object_generations.insert(number, generation);
         self.object_offsets.insert(number, offset);
+        self.offsets_to_objects.insert(offset, number);
     }
     pub fn add_free(&mut self, number:u32, generation: u16) {
         self.object_generations.insert(number, generation);
@@ -277,6 +286,15 @@ impl CrossReferenceTable {
                 None
             }
         }
+    }
+
+    // todo make this much, much better
+    // to start: find the offset that follows the offset of the given object.
+    // being aware that the object number might have the last object offset
+    // and we need to only go so far as the end of the file.
+    // this should be different, but let's try this to see how it should be better.
+    pub fn max_length_of(&self, number: u32) -> Option<usize> {
+        Some(0)
     }
 }
 
