@@ -253,11 +253,20 @@ fn recognize_stream( input: &[u8], len: usize ) -> IResult<&[u8], Vec<u8> >
     // rules about which ws?
     index += skip_whitespace(input);
 
-    // special case the len == 0
+    // special case the len == 0, which could be an actual 0, or because
+    // of an indirect reference pointing to the length value.
     if len == 0 {
-        match re_bytes_find!(&input[index..], r"^stream(\r\n|\n)(\r\n|\r|\n)?endstream") {
-            Done(rest, _boilerplate) => {
+        // this case is apparently permissable.
+        match re_bytes_find!(&input[index..], r"^stream(\r\n|\n)endstream") {
+            Done(rest, _matches) => {
                 return Done(rest, b""[..].to_owned());
+            },
+            _ => {}
+        }
+
+        match re_bytes_capture!(&input[index..], r"^stream(\r\n|\n)(.*?)(\r\n|\r|\n)endstream") {
+            Done(rest, matches) => {
+                return Done(rest, matches[2].to_owned());
             },
             Incomplete(whatever) => {
                 return Incomplete(whatever);
@@ -332,7 +341,18 @@ pub fn stream_object(input: &[u8]) -> IResult<&[u8], PdfObject>
                     }
                 },
                 Ok(Some(PdfObject::IndirectReference { number: _n, generation: _g })) => {
-                    return Error(error_position!(ErrorKind::Custom(ErrorCodes::NonIntegerLengthInStreamDictionary as u32), input));
+
+                    match recognize_stream(rest, 0 as usize) {
+                        Done(rest2, v) => {
+                            return Done(rest2, PdfObject::Stream(n, v));
+                        },
+                        Incomplete(whatever) => {
+                            return Incomplete(whatever);
+                        },
+                        Error(err) => {
+                            return Error(err);
+                        }
+                    }
                 },
                 Ok(Some(_p)) => {
                     return Error(error_position!(ErrorKind::Custom(ErrorCodes::NonIntegerLengthInStreamDictionary as u32), input));
