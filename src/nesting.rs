@@ -253,20 +253,21 @@ fn recognize_stream( input: &[u8], len: usize ) -> IResult<&[u8], Vec<u8> >
     // rules about which ws?
     index += skip_whitespace(input);
 
-    // special case the len == 0, which could be an actual 0, or because
+    // the special case the len == 0, which could be an actual 0, or because
     // of an indirect reference pointing to the length value.
     if len == 0 {
-        // this case is apparently permissable.
-        match re_bytes_find!(&input[index..], r"^stream(\r\n|\n)endstream") {
-            Done(rest, _matches) => {
-                return Done(rest, b""[..].to_owned());
-            },
-            _ => {}
-        }
 
-        match re_bytes_capture!(&input[index..], r"^stream(\r\n|\n)(.*?)(\r\n|\r|\n)endstream") {
-            Done(rest, matches) => {
-                return Done(rest, matches[2].to_owned());
+        // § 7.3.8.1 tells "There should be an end-of-line marker after the data and before endstream"
+        // and examples abound where this isnt the case in real PDFs.
+        // need to be careful with these streams: trim to correct length in
+        // a second pass ?
+        match delimited!(&input[index..],
+            re_bytes_find!("^stream(\r\n|\n)"),
+            take_until!("endstream"),
+            tag!("endstream")
+        ) {
+            Done(rest, stream_bytes) => {
+                return Done(rest, stream_bytes[..].to_owned());
             },
             Incomplete(whatever) => {
                 return Incomplete(whatever);
@@ -709,7 +710,19 @@ mod tests {
                         PdfObject::Name(b"Filter"[..].to_owned()),
                         PdfObject::Name(b"FlateDecode"[..].to_owned()),
                     ] ).unwrap().unwrap(),
-                b"01234567890123456789"[..].to_owned()
+                b"01234567890123456789\r\n"[..].to_owned()
+            )
+        ),
+        rsot_5: (b"<</Length 10 0 R/Filter /FlateDecode>>\r\nstream\r\n0123456\n7890123456789endstream\r\n",
+            PdfObject::Stream(
+                NameKeyedMap::of(
+                    vec![
+                        PdfObject::Name(b"Length"[..].to_owned()),
+                        PdfObject::IndirectReference{ number: 10, generation: 0},
+                        PdfObject::Name(b"Filter"[..].to_owned()),
+                        PdfObject::Name(b"FlateDecode"[..].to_owned()),
+                    ] ).unwrap().unwrap(),
+                b"0123456\n7890123456789"[..].to_owned()
             )
         ),
     }
