@@ -646,7 +646,7 @@ pub fn xref_table(input: &[u8]) -> IResult<&[u8], CrossReferenceTable> {
 
 // get the trailer Dictionary and the offset of the xref we need to look for.
 
-pub fn file_trailer(input: &[u8]) -> IResult<&[u8], (PdfObject,u64)> {
+pub fn file_trailer(input: &[u8]) -> IResult<&[u8], (PdfObject,usize)> {
 
     // need to make these patterns stricter
     match re_bytes_find!(input, r"^\s*trailer\s*(\r\n|\r|\n)") {
@@ -655,7 +655,7 @@ pub fn file_trailer(input: &[u8]) -> IResult<&[u8], (PdfObject,u64)> {
                 Done(rest2, dictionary) => {
                     match re_bytes_capture!(rest2, r"^\s*startxref\s*(\r\n|\r|\n)([123456789]\d*)\s*(\r\n|\r|\n)%%EOF\s*") {
                         Done( rest3, vec3 ) => {
-                            let startxref = number_from_digits(vec3[2]) as u64;
+                            let startxref = number_from_digits(vec3[2]) as usize;
                             return Done(rest3, (dictionary, startxref))
                         },
                         Incomplete(whatever) => {

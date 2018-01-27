@@ -16,8 +16,8 @@ use regex::bytes::Regex;
 use parsepdf::*;
 
 /// caller expected to get the file state and numbers right!
-fn get_byte_array_from_file(file: &mut File, start: u64, length: u64) -> Result<Vec<u8>, io::Error> {
-    let _seek_result = file.seek(SeekFrom::Start(start))?;
+fn get_byte_array_from_file(file: &mut File, start: usize, length: usize) -> Result<Vec<u8>, io::Error> {
+    let _seek_result = file.seek(SeekFrom::Start(start as u64))?;
     let mut retval = vec![0u8; length as usize];
     let _read_result = file.read_exact(&mut retval[..])?;
     Ok(retval)
@@ -48,10 +48,14 @@ fn process_file(possible_file: String) -> Result<(), PdfError> {
         println!("trailer dictionary: {}", &trailer_dict);
         println!("xref table: {}", xref_table);
 
-//        for object_number in xref_table.in_use() {
-//            let obj_bytes = get_byte_array_from_file(file, xref_table.offset_of(object_number), xref_table.max_length_of(object_number))?;
-//            ind_obj = indirect_object()
-//        }
+        for object_number in xref_table.in_use() {
+            let obj_bytes =
+                get_byte_array_from_file(&mut file,
+                                         xref_table.offset_of(object_number).unwrap(),
+                                         xref_table.max_length_of(object_number).unwrap())?;
+            let ind_obj = indirect_object(&obj_bytes);
+            println!("ind obj: {:?}", ind_obj);
+        }
 
         Ok(())
 
@@ -60,10 +64,10 @@ fn process_file(possible_file: String) -> Result<(), PdfError> {
     }
 }
 
-fn get_trailer_and_xref(file: &mut File, file_len: u64) -> Result<(PdfObject, CrossReferenceTable, u64), PdfError> {
-    let last_kaye = get_byte_array_from_file(file, file_len - 1024, 1024)?;
+fn get_trailer_and_xref(file: &mut File, file_len: u64) -> Result<(PdfObject, CrossReferenceTable, usize), PdfError> {
+    let last_kaye = get_byte_array_from_file(file, (file_len - 1024) as usize, 1024 as usize)?;
     let (dict, startxref) = parse_trailer(&last_kaye)?;
-    let xref_bytes = get_byte_array_from_file(file, startxref, (file_len - startxref))?;
+    let xref_bytes = get_byte_array_from_file(file, startxref, (file_len as usize - startxref))?;
     match xref_table(&xref_bytes) {
         Done(_rest, mut crt) => {
             // assert something about _rest ?
@@ -82,11 +86,11 @@ fn get_trailer_and_xref(file: &mut File, file_len: u64) -> Result<(PdfObject, Cr
 // find in last_kaye where the last instance of "trailer" is,
 // start our file_trailer from that last instance.
 
-fn parse_trailer(last_kaye: &Vec<u8>) -> Result<(PdfObject, u64), PdfError> {
+fn parse_trailer(last_kaye: &Vec<u8>) -> Result<(PdfObject, usize), PdfError> {
     let re = Regex::new(r"trailer").unwrap();
-    let mut trailer_offset: Option<u64> = None;
+    let mut trailer_offset: Option<usize> = None;
     for mat in re.find_iter(&last_kaye[..]) {
-        trailer_offset = Some(mat.start() as u64);
+        trailer_offset = Some(mat.start());
     }
     match trailer_offset {
         Some(n) => {

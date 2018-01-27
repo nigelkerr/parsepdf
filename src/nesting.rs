@@ -244,6 +244,8 @@ pub fn dictionary_object(input: &[u8]) -> IResult<&[u8], PdfObject>
 // not quite the normal api, since we have an alleged /Length by which to
 // measure the stream.
 
+// but /Length can have an object reference, so ugh
+
 fn recognize_stream( input: &[u8], len: usize ) -> IResult<&[u8], Vec<u8> >
 {
     let mut index = 0;
@@ -328,6 +330,9 @@ pub fn stream_object(input: &[u8]) -> IResult<&[u8], PdfObject>
                     } else {
                         return Error(error_position!(ErrorKind::Custom(ErrorCodes::NegativeLengthInStreamDictionary as u32), input));
                     }
+                },
+                Ok(Some(PdfObject::IndirectReference { number: _n, generation: _g })) => {
+                    return Error(error_position!(ErrorKind::Custom(ErrorCodes::NonIntegerLengthInStreamDictionary as u32), input));
                 },
                 Ok(Some(_p)) => {
                     return Error(error_position!(ErrorKind::Custom(ErrorCodes::NonIntegerLengthInStreamDictionary as u32), input));

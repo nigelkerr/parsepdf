@@ -3,6 +3,8 @@ use std::fmt;
 use std::collections::HashMap;
 use std::collections::BTreeMap;
 use std::collections::BTreeSet;
+use std::collections::Bound::Unbounded;
+use std::collections::Bound::Excluded;
 use std::error::Error;
 use std::io;
 use std::str;
@@ -22,6 +24,7 @@ pub enum ErrorCodes {
     ExpectedDictionaryStart,
     ExpectedDictionaryValue,
     NoValidDictionaryContents,
+    IndirectReferenceLengthInStreamDictionary, // we want this to be temporary
     NonIntegerLengthInStreamDictionary,
     NegativeLengthInStreamDictionary,
     SomethingHorribleAboutStreamDictionary,
@@ -293,8 +296,27 @@ impl CrossReferenceTable {
     // being aware that the object number might have the last object offset
     // and we need to only go so far as the end of the file.
     // this should be different, but let's try this to see how it should be better.
+    // the non-simple file organizations (multiple xref tables, object streams)
+    // will challenge anything we do here anyways.
     pub fn max_length_of(&self, number: u32) -> Option<usize> {
-        Some(0)
+        if self.object_offsets.contains_key(&number) {
+            let start_offset = self.object_offsets.get(&number).unwrap();
+            let mut next_start_offset: usize = 0;
+
+            for (&key, &_value) in self.offsets_to_objects.range((Excluded(start_offset), Unbounded)) {
+                next_start_offset = key;
+                break;
+            }
+
+            if next_start_offset == 0 {
+                next_start_offset = self.length;
+            }
+
+            Some(next_start_offset - start_offset)
+        } else {
+            None
+        }
+
     }
 }
 
