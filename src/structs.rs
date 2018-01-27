@@ -393,7 +393,7 @@ mod tests {
                     }
                 }
 
-                println!("{:?}", n.names());
+                assert_eq!(1, n.names().len());
 
             },
             _ => {
@@ -403,7 +403,7 @@ mod tests {
 
 
         match NameKeyedMap::of(  vec![PdfObject::Name(b"A"[..].to_owned())  ] ) {
-            Ok(Some(n)) => {
+            Ok(Some(_n)) => {
                 assert_eq!(117, 0);
             },
             Err(_x) => {

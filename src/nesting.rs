@@ -656,7 +656,8 @@ mod tests {
                             assert_eq!(x, expected);
 
                         },
-                        _ => {
+                        x => {
+                            println!("err is: {:?}", x);
                             assert_eq!(150, 0);
                         }
                     }
@@ -676,6 +677,18 @@ mod tests {
         rsot_3: (b"<< /Length 20 >>\r\nstream\r\n01234567890123456789\r\nendstream\r\n",
             PdfObject::Stream(
                 NameKeyedMap::of( vec![PdfObject::Name(b"Length"[..].to_owned()), PdfObject::Integer(20)] ).unwrap().unwrap(),
+                b"01234567890123456789"[..].to_owned()
+            )
+        ),
+        rsot_4: (b"<</Length 10 0 R/Filter /FlateDecode>>\r\nstream\r\n01234567890123456789\r\nendstream\r\n",
+            PdfObject::Stream(
+                NameKeyedMap::of(
+                    vec![
+                        PdfObject::Name(b"Length"[..].to_owned()),
+                        PdfObject::IndirectReference{ number: 10, generation: 0},
+                        PdfObject::Name(b"Filter"[..].to_owned()),
+                        PdfObject::Name(b"FlateDecode"[..].to_owned()),
+                    ] ).unwrap().unwrap(),
                 b"01234567890123456789"[..].to_owned()
             )
         ),
