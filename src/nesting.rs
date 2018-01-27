@@ -499,6 +499,17 @@ mod tests {
     }
 
     recognized_dict_object_test! {
+        rd_0: (b"<</Length 6 0 R/Filter /FlateDecode>>",
+                PdfObject::Dictionary(
+                    NameKeyedMap::of(
+                        vec![
+                            PdfObject::Name(b"Length"[..].to_owned()),
+                            PdfObject::IndirectReference { number: 6, generation: 0},
+                            PdfObject::Name(b"Filter"[..].to_owned()),
+                            PdfObject::Name(b"FlateDecode"[..].to_owned()),
+                        ]
+                    ).unwrap().unwrap()
+                )),
         rd_1: (b"<< >>", PdfObject::Dictionary( NameKeyedMap::new() )),
         rd_2: (b"<</yo%yo\n1>>", PdfObject::Dictionary( NameKeyedMap::of(
                                     vec![

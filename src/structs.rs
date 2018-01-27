@@ -172,6 +172,7 @@ impl NameKeyedMap {
                 }
             }
             _ => {
+                println!("args {:?} {:?}", k, v);
                 Err(PdfError { desc: "key wasnt a PdfObject::Name".to_string(), underlying: None })
             }
         }
@@ -180,7 +181,11 @@ impl NameKeyedMap {
     pub fn of(values: Vec<PdfObject>) -> Result<Option<NameKeyedMap>, PdfError> {
         let mut map: NameKeyedMap = NameKeyedMap::new();
 
-        for window in values.windows(2) {
+        if values.len() % 2 != 0 {
+            return Err(PdfError { desc: "need even number of items to of()".to_string(), underlying: None })
+        }
+
+        for window in values.chunks(2) {
             match map.insert(window[0].clone(), window[1].clone()) {
                 Ok(_) => {},
                 Err(x) => {
@@ -399,16 +404,9 @@ mod tests {
 
         match NameKeyedMap::of(  vec![PdfObject::Name(b"A"[..].to_owned())  ] ) {
             Ok(Some(n)) => {
-
-                match n.get(PdfObject::Name(b"A"[..].to_owned())) {
-
-                    Ok(None) => {
-
-                    },
-                    _ => {
-                        assert_eq!(117,0);
-                    }
-                }
+                assert_eq!(117, 0);
+            },
+            Err(_x) => {
 
             },
             _ => {

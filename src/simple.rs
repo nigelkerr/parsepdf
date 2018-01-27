@@ -1029,7 +1029,7 @@ mod tests {
 
             Done(_rest, (dict, offset)) => {
 
-                assert_eq!(18799 as u64, offset);
+                assert_eq!(18799 as usize, offset);
                 match dict {
                     PdfObject::Dictionary(nkm) => {
                         assert_eq!(PdfObject::Integer(22), nkm.get(PdfObject::Name(b"Size"[..].to_owned())).unwrap().unwrap());
