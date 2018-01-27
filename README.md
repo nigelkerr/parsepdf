@@ -2,6 +2,13 @@
 
 Try to learn nom, rust, and the PDF 2.0 spec by parsing PDFs.
 
+## 2018-01-27
+
+Today, describe-pdf can sort of show you the contents of simple PDFS.  Had a bit of a go-around with the Stream
+with a /Length value of an indirect reference, and that problem is not fully solved.
+
+I read today that there is an upgrading-to-nom-4 document, so that might be in the immediate future here.
+
 ## 2018-01-07
 
 started describe-pdf, my intent being: use the library functions to parse then describe an input PDF, in the hopes of
