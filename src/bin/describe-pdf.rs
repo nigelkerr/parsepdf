@@ -2,7 +2,7 @@ extern crate regex;
 extern crate nom;
 extern crate parsepdf;
 
-use nom::IResult::*;
+use nom::*;
 
 use std::env;
 use std::fs::File;
@@ -10,7 +10,6 @@ use std::io::Seek;
 use std::io::SeekFrom;
 use std::io::Read;
 use std::io;
-use std::error::Error;
 use regex::bytes::Regex;
 
 use parsepdf::*;
@@ -77,7 +76,7 @@ fn get_trailer_and_xref(file: &mut File, file_len: u64) -> Result<(PdfObject, Cr
         Err(Err::Incomplete(_whatever)) => {
             Err(PdfError { desc: "not enough bytes for xref_table?".to_string(), underlying: None })
         }
-        Error(_err) => {
+        Err(_err) => {
             Err(PdfError { desc: "Error(err) from nom".to_string(), underlying: None })
         }
     }

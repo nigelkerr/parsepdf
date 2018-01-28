@@ -61,7 +61,7 @@ pub fn array_object(input: &[u8]) -> IResult<&[u8], PdfObject>
                 } else {
                     // anything not whitespace and not [ isn't an array at this point,
                     // we ought to consume it some other way.
-                    return Error(error_position!(ErrorKind::Custom(ErrorCodes::ExpectedArrayStart as u32), input));
+                    return Err(Err::Error(error_position!(input,ErrorKind::Custom(ErrorCodes::ExpectedArrayStart as u32))));
                 }
             }
 
@@ -99,7 +99,7 @@ pub fn array_object(input: &[u8]) -> IResult<&[u8], PdfObject>
             }
 
             // we reached here without recognizing anything!
-            return Error(error_position!(ErrorKind::Custom(ErrorCodes::NoValidArrayContents as u32), input));
+            return Err(Err::Error(error_position!(input,ErrorKind::Custom(ErrorCodes::NoValidArrayContents as u32))));
         }
     }
 }
@@ -159,7 +159,7 @@ pub fn dictionary_object(input: &[u8]) -> IResult<&[u8], PdfObject>
                 } else {
                     // anything not whitespace and not < isn't a dict at this point,
                     // we ought to consume it some other way.
-                    return Error(error_position!(ErrorKind::Custom(ErrorCodes::ExpectedDictionaryStart as u32), input));
+                    return Err(Err::Error(error_position!(input,ErrorKind::Custom(ErrorCodes::ExpectedDictionaryStart as u32))));
                 }
             }
 
@@ -175,7 +175,7 @@ pub fn dictionary_object(input: &[u8]) -> IResult<&[u8], PdfObject>
                     return Ok((&linput[index + 2..], PdfObject::Dictionary(result)));
                 } else {
                     // if we were expecting a value, we're error
-                    return Error(error_position!(ErrorKind::Custom(ErrorCodes::ExpectedDictionaryValue as u32), input));
+                    return Err(Err::Error(error_position!(input,ErrorKind::Custom(ErrorCodes::ExpectedDictionaryValue as u32))));
                 }
             }
 
@@ -203,7 +203,7 @@ pub fn dictionary_object(input: &[u8]) -> IResult<&[u8], PdfObject>
                             return Err(Err::Incomplete(whatever));
                         },
                         _ => {
-                            // ulp
+                            // ulp FIXME?
                         }
                     };
                 }
@@ -228,13 +228,13 @@ pub fn dictionary_object(input: &[u8]) -> IResult<&[u8], PdfObject>
                             return Err(Err::Incomplete(whatever));
                         },
                         _ => {
-                            // ugh FIXME
+                            // ulp FIXME?
                         }
                     };
                 }
             }
 
-            return Error(error_position!(ErrorKind::Custom(ErrorCodes::NoValidDictionaryContents as u32), input));
+            return Err(Err::Error(error_position!(input,ErrorKind::Custom(ErrorCodes::NoValidDictionaryContents as u32))));
         }
     }
 }
@@ -271,8 +271,8 @@ fn recognize_stream( input: &[u8], len: usize ) -> IResult<&[u8], Vec<u8> >
             Err(Err::Incomplete(whatever)) => {
                 return Err(Err::Incomplete(whatever));
             },
-            Error(err) => {
-                return Error(err);
+            Err(err) => {
+                return Err(err);
             }
         }
     }
@@ -280,33 +280,33 @@ fn recognize_stream( input: &[u8], len: usize ) -> IResult<&[u8], Vec<u8> >
 
     match re_bytes_find!(&input[index..], r"^stream(\r\n|\n)") { // just these two line ending options
         Ok((rest, _stream)) => {
-            match take!(&rest, len) {
+            match take!(rest, len) {
                 Ok((rest2, bytes_of_stream)) => {
-                    match re_bytes_find!(&rest2, r"^(\r\n|\r|\n)endstream") {
+                    match re_bytes_find!(rest2, r"^(\r\n|\r|\n)endstream") {
                         Ok((rest3, _endstream)) => {
                             return Ok((rest3, bytes_of_stream[..].to_owned() ));
                         },
                         Err(Err::Incomplete(whatever)) => {
                             return Err(Err::Incomplete(whatever));
                         },
-                        Error(err) => {
-                            return Error(err);
+                        Err(err) => {
+                            return Err(err);
                         }
                     }
                 },
                 Err(Err::Incomplete(whatever)) => {
                     return Err(Err::Incomplete(whatever));
                 },
-                Error(err) => {
-                    return Error(err);
+                Err(err) => {
+                    return Err(err);
                 }
             }
         },
         Err(Err::Incomplete(whatever)) => {
             return Err(Err::Incomplete(whatever));
         },
-        Error(err) => {
-            return Error(err);
+        Err(err) => {
+            return Err(err);
         }
     }
 }
@@ -331,13 +331,13 @@ pub fn stream_object(input: &[u8]) -> IResult<&[u8], PdfObject>
                             Err(Err::Incomplete(whatever)) => {
                                 return Err(Err::Incomplete(whatever));
                             },
-                            Error(err) => {
-                                return Error(err);
+                            Err(err) => {
+                                return Err(err);
                             }
                         }
 
                     } else {
-                        return Error(error_position!(ErrorKind::Custom(ErrorCodes::NegativeLengthInStreamDictionary as u32), input));
+                        return Err(Err::Error(error_position!(input,ErrorKind::Custom(ErrorCodes::NegativeLengthInStreamDictionary as u32))));
                     }
                 },
                 Ok(Some(PdfObject::IndirectReference { number: _n, generation: _g })) => {
@@ -349,30 +349,30 @@ pub fn stream_object(input: &[u8]) -> IResult<&[u8], PdfObject>
                         Err(Err::Incomplete(whatever)) => {
                             return Err(Err::Incomplete(whatever));
                         },
-                        Error(err) => {
-                            return Error(err);
+                        Err(err) => {
+                            return Err(err);
                         }
                     }
                 },
                 Ok(Some(_p)) => {
-                    return Error(error_position!(ErrorKind::Custom(ErrorCodes::NonIntegerLengthInStreamDictionary as u32), input));
+                    return Err(Err::Error(error_position!(input,ErrorKind::Custom(ErrorCodes::NonIntegerLengthInStreamDictionary as u32))));
                 },
                 Ok(None) => {
                     return Ok((rest, PdfObject::Dictionary(n)));
                 },
                 Err(_err) => {
-                    return Error(error_position!(ErrorKind::Custom(ErrorCodes::SomethingHorribleAboutStreamDictionary as u32), input))
+                    return Err(Err::Error(error_position!(input,ErrorKind::Custom(ErrorCodes::SomethingHorribleAboutStreamDictionary as u32))));
                 }
             }
         },
         Ok((_rest, _wut)) => {
-            return Error(error_position!(ErrorKind::Custom(ErrorCodes::CalledDictionaryAndGotSomethingElse as u32), input));
+            return Err(Err::Error(error_position!(input,ErrorKind::Custom(ErrorCodes::NegativeLengthInStreamDictionary as u32))));
         },
         Err(Err::Incomplete(whatever)) => {
             return Err(Err::Incomplete(whatever));
         },
-        Error(err) => {
-            Error(err)
+        Err(err) => {
+            Err(err)
         }
     }
 }
@@ -423,8 +423,14 @@ mod tests {
                 #[test]
                 fn $name() {
                     let (input, expected) = $value;
-                    assert_eq!(array_object(input.as_bytes()).to_result().unwrap(),
-                        expected);
+                    match array_object(input.as_bytes()) {
+                        Ok((_b, v)) => {
+                            assert_eq!(v, expected);
+                        },
+                        _ => {
+                            assert_eq!(11, 0);
+                        }
+                    }
                 }
             )*
         }
@@ -511,8 +517,17 @@ mod tests {
                 #[test]
                 fn $name() {
                     let (input, expected) = $value;
-                    assert_eq!(dictionary_object(input.as_bytes()).to_result().unwrap(),
-                        expected);
+
+                    match dictionary_object(input.as_bytes()) {
+                        Ok((_b, v)) => {
+                            assert_eq!(v, expected);
+                        },
+                        _ => {
+                            assert_eq!(11, 0);
+                        }
+                    }
+
+
                 }
             )*
         }
@@ -628,12 +643,12 @@ mod tests {
     fn test_recognized_dict_object_errors () {
 
         assert_eq!(
-            nom::Err::Position(nom::ErrorKind::Custom(ErrorCodes::ExpectedDictionaryValue as u32), b"<</yo%yo\n >>".as_bytes()),
-            dictionary_object(b"<</yo%yo\n >>".as_bytes()).to_result().unwrap_err()
+            Err(Err::Error(error_position!(b"<</yo%yo\n >>".as_bytes(),ErrorKind::Custom(ErrorCodes::ExpectedDictionaryValue as u32)))),
+            dictionary_object(b"<</yo%yo\n >>".as_bytes())
         );
         assert_eq!(
-            nom::Err::Position(nom::ErrorKind::Custom(ErrorCodes::ExpectedDictionaryValue as u32), b"<</yo>>".as_bytes()),
-            dictionary_object(b"<</yo>>".as_bytes()).to_result().unwrap_err()
+            Err(Err::Error(error_position!(b"<</yo>>".as_bytes(),ErrorKind::Custom(ErrorCodes::ExpectedDictionaryValue as u32)))),
+            dictionary_object(b"<</yo>>".as_bytes())
         );
     }
 
@@ -659,7 +674,7 @@ mod tests {
 
         assert_eq!(
             recognize_stream(b" stream\n__--__--__--__--", 16),
-            Error(nom::Err::Code(nom::ErrorKind::RegexpFind))
+            Err(Err::Error(Context::Code(&b" stream\n__--__--__--__--"[..], ErrorKind::RegexpFind)))
         );
 
     }
@@ -730,7 +745,7 @@ mod tests {
     fn test_indirect_object() {
         assert_eq!(
             IndirectObject{ obj: PdfObject::String( b"xyzzy"[..].to_owned()), number: 1 as u32, generation: 0 as u16 },
-            indirect_object(b"1 0 obj\n(xyzzy)endobj".as_bytes()).to_result().unwrap()
+            indirect_object(b"1 0 obj\n(xyzzy)endobj".as_bytes()).unwrap().1
         );
     }
 }
