@@ -170,7 +170,7 @@ pub fn is_pdf_whitespace(chr: u8) -> bool {
 
 named!(pub recognize_some_ws<&[u8],&[u8]>,
     recognize!(
-        take_while!(is_pdf_whitespace)
+        re_bytes_find!("^(\x00|\x09|\x0a|\x0c|\x0d|\x20)*")
     )
 );
 
@@ -179,7 +179,7 @@ pub fn skip_whitespace(input: &[u8]) -> usize {
     match ws_iresult {
         Ok((_, recognized)) => {
             return recognized.len();
-        }
+        },
         _ => {
             return 0;
         }
@@ -731,7 +731,7 @@ mod tests {
         assert_eq!((b"".as_bytes(), PdfVersion::Known { ver: b"1.0".to_vec() }), pdf_magic(b"%PDF-1.0\r\n").unwrap());
         assert_eq!(Err(Err::Error(Context::Code(&[98u8, 108u8, 97u8, 104u8][..],nom::ErrorKind::Tag ))),
                    pdf_magic(b"blah"));
-        assert_eq!(Err(Err::Error(Context::Code(&b"%PDF-3.0\r"[..] ,nom::ErrorKind::RegexpFind))),
+        assert_eq!(Err(Err::Error(Context::Code(&b"3.0\r"[..] ,nom::ErrorKind::RegexpFind))),
                    pdf_magic(b"%PDF-3.0\r"));
     }
 

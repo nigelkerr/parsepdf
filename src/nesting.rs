@@ -674,7 +674,7 @@ mod tests {
 
         assert_eq!(
             recognize_stream(b" stream\n__--__--__--__--", 16),
-            Err(Err::Error(Context::Code(&b" stream\n__--__--__--__--"[..], ErrorKind::RegexpFind)))
+            Err(Err::Error(Context::Code(&b""[..], ErrorKind::RegexpFind)))
         );
 
     }
