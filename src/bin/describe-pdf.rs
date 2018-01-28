@@ -2,7 +2,7 @@ extern crate regex;
 extern crate nom;
 extern crate parsepdf;
 
-use nom::IResult::*;
+use nom::*;
 
 use std::env;
 use std::fs::File;
@@ -10,7 +10,6 @@ use std::io::Seek;
 use std::io::SeekFrom;
 use std::io::Read;
 use std::io;
-use std::error::Error;
 use regex::bytes::Regex;
 
 use parsepdf::*;
@@ -69,15 +68,15 @@ fn get_trailer_and_xref(file: &mut File, file_len: u64) -> Result<(PdfObject, Cr
     let (dict, startxref) = parse_trailer(&last_kaye)?;
     let xref_bytes = get_byte_array_from_file(file, startxref, (file_len as usize - startxref))?;
     match xref_table(&xref_bytes) {
-        Done(_rest, mut crt) => {
+        Ok((_rest, mut crt)) => {
             // assert something about _rest ?
             crt.pdf_length(file_len as usize);
             Ok((dict, crt, startxref))
         }
-        Incomplete(_whatever) => {
+        Err(Err::Incomplete(_whatever)) => {
             Err(PdfError { desc: "not enough bytes for xref_table?".to_string(), underlying: None })
         }
-        Error(_err) => {
+        Err(_err) => {
             Err(PdfError { desc: "Error(err) from nom".to_string(), underlying: None })
         }
     }
@@ -95,7 +94,7 @@ fn parse_trailer(last_kaye: &Vec<u8>) -> Result<(PdfObject, usize), PdfError> {
     match trailer_offset {
         Some(n) => {
             match file_trailer(&last_kaye[(n as usize)..]) {
-                Done(_rest, (dict, startxref)) => {
+                Ok((_rest, (dict, startxref))) => {
                     return Ok((dict, startxref));
                 }
                 _ => {
