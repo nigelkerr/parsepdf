@@ -65,58 +65,19 @@ named!(pub boolean<&[u8],PdfObject>,
 
 // § 7.3.3
 
-named!(maybe_signed_integer<&[u8],(Option<&[u8]>, &[u8])>,
-    pair!(
-        opt!(alt!(tag_s!("+") | tag_s!("-"))),
-        nom::digit
-    )
-);
-named!(recognize_signed_integer<&[u8],&[u8]>,
-    recognize!(
-        maybe_signed_integer
-    )
-);
 named!(pub signed_integer<&[u8],PdfObject>,
     do_parse!(
-        v: recognize_signed_integer
+        v: re_bytes_capture!(r"^([-+]?[0-9]+)")
         >>
-        (PdfObject::Integer ( FromStr::from_str(str::from_utf8(v).unwrap()).unwrap() ) )
-    )
-);
-
-
-named!(maybe_signed_float_ap<&[u8],(Option<&[u8]>,&[u8],&[u8],Option<&[u8]>)>,
-    tuple!(
-        opt!(alt!(tag!(b"+") | tag!(b"-"))),
-        digit,
-        tag!(b"."),
-        opt!(complete!(digit))
-    )
-);
-
-named!(maybe_signed_float_pp<&[u8],(Option<&[u8]>,&[u8],&[u8],Option<&[u8]>)>,
-    tuple!(
-        opt!(alt!(tag!(b"+") | tag!(b"-"))),
-        tag!(b"."),
-        digit,
-        opt!(complete!(digit))
-    )
-);
-
-named!(recognize_signed_float<&[u8],&[u8]>,
-    recognize!(
-        alt!(
-            complete!( maybe_signed_float_ap ) |
-            complete!( maybe_signed_float_pp )
-        )
+        (PdfObject::Integer ( FromStr::from_str(str::from_utf8(v[0]).unwrap()).unwrap() ) )
     )
 );
 
 named!(pub signed_float<&[u8],PdfObject>,
     do_parse!(
-        v: recognize_signed_float
+        v: re_bytes_capture!(r"^([-+]?([0-9]*\.[0-9]+|[0-9]+\.[0-9]*))")
         >>
-        (PdfObject::Float ( FromStr::from_str(str::from_utf8(v).unwrap()).unwrap()))
+        (PdfObject::Float ( FromStr::from_str(str::from_utf8(v[0]).unwrap()).unwrap()))
     )
 );
 
