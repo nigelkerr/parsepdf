@@ -20,7 +20,7 @@ pub fn array_object(input: &[u8]) -> IResult<&[u8], PdfObject>
     let mut result: Vec<PdfObject> = Vec::new();
 
     if input.len() == 0 {
-        return Incomplete(Needed::Unknown);
+        return Err(Err::Incomplete(Needed::Unknown));
     }
 
     let mut linput = input;
@@ -86,10 +86,10 @@ pub fn array_object(input: &[u8]) -> IResult<&[u8], PdfObject>
                         linput = rest;
                         index = 0;
                         continue 'outer;
-                    }
-                    Incomplete(whatever) => {
-                        return Incomplete(whatever);
-                    }
+                    },
+                    Err(Err::Incomplete(whatever)) => {
+                        return Err(Err::Incomplete(whatever));
+                    },
                     _ => {
                         // i think we ignore these til we bail out
                         // of this recognizers function loop.  it will
@@ -112,7 +112,7 @@ pub fn dictionary_object(input: &[u8]) -> IResult<&[u8], PdfObject>
     let mut result: NameKeyedMap = NameKeyedMap::new();
 
     if input.len() == 0 {
-        return Incomplete(Needed::Unknown);
+        return Err(Err::Incomplete(Needed::Unknown));
     }
 
     let mut linput = input;
@@ -198,10 +198,10 @@ pub fn dictionary_object(input: &[u8]) -> IResult<&[u8], PdfObject>
                             linput = rest;
                             index = 0;
                             continue 'outer;
-                        }
-                        Incomplete(whatever) => {
-                            return Incomplete(whatever);
-                        }
+                        },
+                        Err(Err::Incomplete(whatever)) => {
+                            return Err(Err::Incomplete(whatever));
+                        },
                         _ => {
                             // ulp
                         }
@@ -223,10 +223,10 @@ pub fn dictionary_object(input: &[u8]) -> IResult<&[u8], PdfObject>
                             linput = rest;
                             index = 0;
                             continue 'outer;
-                        }
-                        Incomplete(whatever) => {
-                            return Incomplete(whatever);
-                        }
+                        },
+                        Err(Err::Incomplete(whatever)) => {
+                            return Err(Err::Incomplete(whatever));
+                        },
                         _ => {
                             // ugh FIXME
                         }
@@ -268,8 +268,8 @@ fn recognize_stream( input: &[u8], len: usize ) -> IResult<&[u8], Vec<u8> >
             Ok((rest, stream_bytes)) => {
                 return Ok((rest, stream_bytes[..].to_owned()));
             },
-            Incomplete(whatever) => {
-                return Incomplete(whatever);
+            Err(Err::Incomplete(whatever)) => {
+                return Err(Err::Incomplete(whatever));
             },
             Error(err) => {
                 return Error(err);
@@ -286,24 +286,24 @@ fn recognize_stream( input: &[u8], len: usize ) -> IResult<&[u8], Vec<u8> >
                         Ok((rest3, _endstream)) => {
                             return Ok((rest3, bytes_of_stream[..].to_owned() ));
                         },
-                        Incomplete(whatever) => {
-                            return Incomplete(whatever);
+                        Err(Err::Incomplete(whatever)) => {
+                            return Err(Err::Incomplete(whatever));
                         },
                         Error(err) => {
                             return Error(err);
                         }
                     }
                 },
-                Incomplete(whatever) => {
-                    return Incomplete(whatever);
+                Err(Err::Incomplete(whatever)) => {
+                    return Err(Err::Incomplete(whatever));
                 },
                 Error(err) => {
                     return Error(err);
                 }
             }
         },
-        Incomplete(whatever) => {
-            return Incomplete(whatever);
+        Err(Err::Incomplete(whatever)) => {
+            return Err(Err::Incomplete(whatever));
         },
         Error(err) => {
             return Error(err);
@@ -328,8 +328,8 @@ pub fn stream_object(input: &[u8]) -> IResult<&[u8], PdfObject>
                             Ok((rest2, v)) => {
                                 return Ok((rest2, PdfObject::Stream(n, v)));
                             },
-                            Incomplete(whatever) => {
-                                return Incomplete(whatever);
+                            Err(Err::Incomplete(whatever)) => {
+                                return Err(Err::Incomplete(whatever));
                             },
                             Error(err) => {
                                 return Error(err);
@@ -346,8 +346,8 @@ pub fn stream_object(input: &[u8]) -> IResult<&[u8], PdfObject>
                         Ok((rest2, v)) => {
                             return Ok((rest2, PdfObject::Stream(n, v)));
                         },
-                        Incomplete(whatever) => {
-                            return Incomplete(whatever);
+                        Err(Err::Incomplete(whatever)) => {
+                            return Err(Err::Incomplete(whatever));
                         },
                         Error(err) => {
                             return Error(err);
@@ -367,10 +367,10 @@ pub fn stream_object(input: &[u8]) -> IResult<&[u8], PdfObject>
         },
         Ok((_rest, _wut)) => {
             return Error(error_position!(ErrorKind::Custom(ErrorCodes::CalledDictionaryAndGotSomethingElse as u32), input));
-        }
-        Incomplete(whatever) => {
-            Incomplete(whatever)
-        }
+        },
+        Err(Err::Incomplete(whatever)) => {
+            return Err(Err::Incomplete(whatever));
+        },
         Error(err) => {
             Error(err)
         }
@@ -654,7 +654,7 @@ mod tests {
 
         assert_eq!(
             recognize_stream(b" stream\n__--__--", 16),
-            Incomplete(Needed::Size(16))
+            Err(Err::Incomplete(Needed::Size(16)))
         );
 
         assert_eq!(

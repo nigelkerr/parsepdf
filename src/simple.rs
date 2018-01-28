@@ -270,7 +270,7 @@ fn recognize_literal_string(input: &[u8]) -> IResult<&[u8], Vec<u8> > {
 
     let input_length = input.input_len();
     if input_length == 0 {
-        return Incomplete(Needed::Unknown);
+        return Err(Err::Incomplete(Needed::Unknown));
     }
 
     // are we inside the string yet?
@@ -403,7 +403,7 @@ fn recognize_literal_string(input: &[u8]) -> IResult<&[u8], Vec<u8> > {
     // not the 0 branch
     match parens_depth {
         0 => {}
-        _ => { return Incomplete(Needed::Unknown); }
+        _ => { return Err(Err::Incomplete(Needed::Unknown)); }
     }
     // +1 because the last index we look at is the final ) itself
     Ok((input.slice(index+1..), result))
@@ -439,7 +439,7 @@ pub fn recognize_name_object(input: &[u8]) -> IResult<&[u8], Vec<u8>>
 
     let input_length = input.input_len();
     if input_length == 0 {
-        return Incomplete(Needed::Unknown);
+        return Err(Err::Incomplete(Needed::Unknown));
     }
 
     //
@@ -519,7 +519,7 @@ pub fn recognize_name_object(input: &[u8]) -> IResult<&[u8], Vec<u8>>
     }
 
     if was_number_sign {
-        return Incomplete(Needed::Unknown);
+        return Err(Err::Incomplete(Needed::Unknown));
     }
 
     // ... wut?  i guess we get here if the end of
@@ -607,8 +607,8 @@ pub fn xref_table(input: &[u8]) -> IResult<&[u8], CrossReferenceTable> {
 
                                     linput = rest3;
                                 },
-                                Incomplete(whatever) => {
-                                    return Incomplete(whatever);
+                                Err(Err::Incomplete(whatever)) => {
+                                    return Err(Err::Incomplete(whatever));
                                 },
                                 Error(err) => {
                                     return Error(err);
@@ -618,8 +618,8 @@ pub fn xref_table(input: &[u8]) -> IResult<&[u8], CrossReferenceTable> {
                         }
 
                     },
-                    Incomplete(whatever) => {
-                        return Incomplete(whatever);
+                    Err(Err::Incomplete(whatever)) => {
+                        return Err(Err::Incomplete(whatever));
                     },
                     Error(err) => {
                         if ! first {
@@ -630,8 +630,8 @@ pub fn xref_table(input: &[u8]) -> IResult<&[u8], CrossReferenceTable> {
                 }
             }
         },
-        Incomplete(whatever) => {
-            return Incomplete(whatever)
+        Err(Err::Incomplete(whatever)) => {
+            return Err(Err::Incomplete(whatever));
         },
         Error(err) => {
             return Error(err)
@@ -657,24 +657,24 @@ pub fn file_trailer(input: &[u8]) -> IResult<&[u8], (PdfObject,usize)> {
                             let startxref = number_from_digits(vec3[2]) as usize;
                             return Ok((rest3, (dictionary, startxref)))
                         },
-                        Incomplete(whatever) => {
-                            return Incomplete(whatever);
+                        Err(Err::Incomplete(whatever)) => {
+                            return Err(Err::Incomplete(whatever));
                         },
                         Error(err) => {
                             return Error(err);
                         }
                     }
                 },
-                Incomplete(whatever) => {
-                    return Incomplete(whatever);
+                Err(Err::Incomplete(whatever)) => {
+                    return Err(Err::Incomplete(whatever));
                 },
                 Error(err) => {
                     return Error(err);
                 }
             }
         },
-        Incomplete(whatever) => {
-            return Incomplete(whatever);
+        Err(Err::Incomplete(whatever)) => {
+            return Err(Err::Incomplete(whatever));
         },
         Error(err) => {
             return Error(err);
@@ -704,7 +704,7 @@ mod tests {
             }
         }
         match null_object(b"nul") {
-            Incomplete(_) => {}
+            Err(Err::Incomplete(_)) => {}
             _ => {
                 assert_eq!(1, 0);
             }
