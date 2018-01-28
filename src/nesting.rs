@@ -5,7 +5,6 @@ use std::str::FromStr;
 
 use nom::*;
 use nom::ErrorKind;
-use nom::IResult::*;
 
 use structs::ErrorCodes;
 use structs::PdfObject;
@@ -69,12 +68,12 @@ pub fn array_object(input: &[u8]) -> IResult<&[u8], PdfObject>
             index += skip_whitespace(&linput[index..]);
 
             if linput[index] == b']' {
-                return Done(&linput[index + 1..], PdfObject::Array(result));
+                return Ok((&linput[index + 1..], PdfObject::Array(result)));
             }
 
             for recognizer in &functions {
                 match (*recognizer)(&linput[index..]) {
-                    Done(rest, obj) => {
+                    Ok((rest, obj)) => {
                         match obj {
                             PdfObject::Comment(_) => {
                                 // should we retain these?
@@ -173,7 +172,7 @@ pub fn dictionary_object(input: &[u8]) -> IResult<&[u8], PdfObject>
                 // far and would be looking to start a new pair if we
                 // weren't ending here?
                 if expect_name {
-                    return Done(&linput[index + 2..], PdfObject::Dictionary(result));
+                    return Ok((&linput[index + 2..], PdfObject::Dictionary(result)));
                 } else {
                     // if we were expecting a value, we're error
                     return Error(error_position!(ErrorKind::Custom(ErrorCodes::ExpectedDictionaryValue as u32), input));
@@ -183,7 +182,7 @@ pub fn dictionary_object(input: &[u8]) -> IResult<&[u8], PdfObject>
             if expect_name {
                 for recognizer in &name_functions {
                     match (*recognizer)(&linput[index..]) {
-                        Done(rest, obj) => {
+                        Ok((rest, obj)) => {
                             match obj {
                                 PdfObject::Name(_) => {
                                     current_key = obj;
@@ -211,7 +210,7 @@ pub fn dictionary_object(input: &[u8]) -> IResult<&[u8], PdfObject>
             } else {
                 for recognizer in &functions {
                     match (*recognizer)(&linput[index..]) {
-                        Done(rest, obj) => {
+                        Ok((rest, obj)) => {
                             match obj {
                                 PdfObject::Comment(_) => {
                                     // skip these
@@ -266,8 +265,8 @@ fn recognize_stream( input: &[u8], len: usize ) -> IResult<&[u8], Vec<u8> >
             take_until!("endstream"),
             tag!("endstream")
         ) {
-            Done(rest, stream_bytes) => {
-                return Done(rest, stream_bytes[..].to_owned());
+            Ok((rest, stream_bytes)) => {
+                return Ok((rest, stream_bytes[..].to_owned()));
             },
             Incomplete(whatever) => {
                 return Incomplete(whatever);
@@ -280,12 +279,12 @@ fn recognize_stream( input: &[u8], len: usize ) -> IResult<&[u8], Vec<u8> >
 
 
     match re_bytes_find!(&input[index..], r"^stream(\r\n|\n)") { // just these two line ending options
-        Done(rest, _stream) => {
+        Ok((rest, _stream)) => {
             match take!(&rest, len) {
-                Done(rest2, bytes_of_stream) => {
+                Ok((rest2, bytes_of_stream)) => {
                     match re_bytes_find!(&rest2, r"^(\r\n|\r|\n)endstream") {
-                        Done(rest3, _endstream) => {
-                            return Done(rest3, bytes_of_stream[..].to_owned() );
+                        Ok((rest3, _endstream)) => {
+                            return Ok((rest3, bytes_of_stream[..].to_owned() ));
                         },
                         Incomplete(whatever) => {
                             return Incomplete(whatever);
@@ -320,14 +319,14 @@ fn recognize_stream( input: &[u8], len: usize ) -> IResult<&[u8], Vec<u8> >
 pub fn stream_object(input: &[u8]) -> IResult<&[u8], PdfObject>
 {
     match dictionary_object(input) {
-        Done(rest, PdfObject::Dictionary(n)) => {
+        Ok((rest, PdfObject::Dictionary(n))) => {
             match n.get( PdfObject::Name( b"Length"[..].to_owned() )) {
                 Ok(Some(PdfObject::Integer( x ))) => {
                     if x >= 0 {
 
                         match recognize_stream(rest, x as usize) {
-                            Done(rest2, v) => {
-                                return Done(rest2, PdfObject::Stream(n, v));
+                            Ok((rest2, v)) => {
+                                return Ok((rest2, PdfObject::Stream(n, v)));
                             },
                             Incomplete(whatever) => {
                                 return Incomplete(whatever);
@@ -344,8 +343,8 @@ pub fn stream_object(input: &[u8]) -> IResult<&[u8], PdfObject>
                 Ok(Some(PdfObject::IndirectReference { number: _n, generation: _g })) => {
 
                     match recognize_stream(rest, 0 as usize) {
-                        Done(rest2, v) => {
-                            return Done(rest2, PdfObject::Stream(n, v));
+                        Ok((rest2, v)) => {
+                            return Ok((rest2, PdfObject::Stream(n, v)));
                         },
                         Incomplete(whatever) => {
                             return Incomplete(whatever);
@@ -359,14 +358,14 @@ pub fn stream_object(input: &[u8]) -> IResult<&[u8], PdfObject>
                     return Error(error_position!(ErrorKind::Custom(ErrorCodes::NonIntegerLengthInStreamDictionary as u32), input));
                 },
                 Ok(None) => {
-                    return Done(rest, PdfObject::Dictionary(n));
+                    return Ok((rest, PdfObject::Dictionary(n)));
                 },
                 Err(_err) => {
                     return Error(error_position!(ErrorKind::Custom(ErrorCodes::SomethingHorribleAboutStreamDictionary as u32), input))
                 }
             }
         },
-        Done(_rest, _wut) => {
+        Ok((_rest, _wut)) => {
             return Error(error_position!(ErrorKind::Custom(ErrorCodes::CalledDictionaryAndGotSomethingElse as u32), input));
         }
         Incomplete(whatever) => {
@@ -645,12 +644,12 @@ mod tests {
         // suggests that there is not necessarily an additional EOL in this instance.
         assert_eq!(
             recognize_stream(b" stream\r\nendstream", 0),
-            Done(b"".as_bytes(), b""[..].to_owned())
+            Ok((b"".as_bytes(), b""[..].to_owned()))
         );
 
         assert_eq!(
             recognize_stream(b" stream\n__--__--__--__--\r\nendstream  ", 16),
-            Done(b"  ".as_bytes(), b"__--__--__--__--"[..].to_owned())
+            Ok((b"  ".as_bytes(), b"__--__--__--__--"[..].to_owned()))
         );
 
         assert_eq!(
@@ -673,7 +672,7 @@ mod tests {
                 fn $name() {
                     let (input, expected) = $value;
                     match stream_object(input.as_bytes()) {
-                        Done(_rest, x) => {
+                        Ok((_rest, x)) => {
                             assert_eq!(x, expected);
 
                         },

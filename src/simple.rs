@@ -3,7 +3,6 @@ extern crate nom;
 use nom::*;
 use nom::digit;
 use nom::ErrorKind;
-use nom::IResult::*;
 use std::str;
 use std::str::FromStr;
 
@@ -178,7 +177,7 @@ named!(pub recognize_some_ws<&[u8],&[u8]>,
 pub fn skip_whitespace(input: &[u8]) -> usize {
     let ws_iresult = recognize_some_ws(input);
     match ws_iresult {
-        Done(_, recognized) => {
+        Ok((_, recognized)) => {
             return recognized.len();
         }
         _ => {
@@ -407,7 +406,7 @@ fn recognize_literal_string(input: &[u8]) -> IResult<&[u8], Vec<u8> > {
         _ => { return Incomplete(Needed::Unknown); }
     }
     // +1 because the last index we look at is the final ) itself
-    Done(input.slice(index+1..), result)
+    Ok((input.slice(index+1..), result))
 }
 
 named!(pub literal_string<&[u8],PdfObject>,
@@ -506,7 +505,7 @@ pub fn recognize_name_object(input: &[u8]) -> IResult<&[u8], Vec<u8>>
             }
             b'\n' | b'\r' | b'\t' | b' ' | b'\x0C' | b'/' | b'(' | b')' | b'<' | b'>' | b'[' | b']' | b'{' | b'}' | b'%' => {
                 // unescaped whitespace and unescaped delimiters end the name
-                return Done(input.slice(idx..), result);
+                return Ok((input.slice(idx..), result));
             }
             b'\x21' ... b'\x7e' => {
                 result.push(chr);
@@ -526,7 +525,7 @@ pub fn recognize_name_object(input: &[u8]) -> IResult<&[u8], Vec<u8>>
     // ... wut?  i guess we get here if the end of
     // current input is indistinguishable from
     // the end of a name possibly.
-    Done(input.slice(input_length..), result)
+    Ok((input.slice(input_length..), result))
 }
 
 /// return the name itself expanded to un-escaped form
@@ -567,7 +566,7 @@ pub fn xref_table(input: &[u8]) -> IResult<&[u8], CrossReferenceTable> {
     // no explicit closer, just on to the next thing which ain't this here.
 
     match re_bytes_find!(input, r"^xref(\r\n|\r|\n)") {
-        Done(rest, _xref) => {
+        Ok((rest, _xref)) => {
             let mut xrt: CrossReferenceTable = CrossReferenceTable::new();
 
             let mut linput = rest;
@@ -576,7 +575,7 @@ pub fn xref_table(input: &[u8]) -> IResult<&[u8], CrossReferenceTable> {
             'outer:
             loop {
                 match re_bytes_capture!(linput, r"^(0|[123456789]\d*) ([123456789]\d*)(\r\n|\r|\n)") {
-                    Done(rest2, vec2) => {
+                    Ok((rest2, vec2)) => {
                         // unwrapping here feels safe given the matching
                         let start: u32 = number_from_digits(vec2[1]) as u32;
 
@@ -591,7 +590,7 @@ pub fn xref_table(input: &[u8]) -> IResult<&[u8], CrossReferenceTable> {
                         for itr in 0..how_many {
 
                             match re_bytes_capture!(linput, r"^(\d{10}) (\d{5}) ([nf])( \r| \n|\r\n)") {
-                                Done(rest3, vec3) => {
+                                Ok((rest3, vec3)) => {
 
                                     let num0: u64 = number_from_digits(vec3[1]);
                                     let num1: u16 = number_from_digits(vec3[2]) as u16;
@@ -624,7 +623,7 @@ pub fn xref_table(input: &[u8]) -> IResult<&[u8], CrossReferenceTable> {
                     },
                     Error(err) => {
                         if ! first {
-                            return Done(linput, xrt);
+                            return Ok((linput, xrt));
                         }
                         return Error(err);
                     }
@@ -650,13 +649,13 @@ pub fn file_trailer(input: &[u8]) -> IResult<&[u8], (PdfObject,usize)> {
 
     // need to make these patterns stricter
     match re_bytes_find!(input, r"^\s*trailer\s*(\r\n|\r|\n)") {
-        Done(rest, _trailer) => {
+        Ok((rest, _trailer)) => {
             match dictionary_object(rest) {
-                Done(rest2, dictionary) => {
+                Ok((rest2, dictionary)) => {
                     match re_bytes_capture!(rest2, r"^\s*startxref\s*(\r\n|\r|\n)([123456789]\d*)\s*(\r\n|\r|\n)%%EOF\s*") {
-                        Done( rest3, vec3 ) => {
+                        Ok(( rest3, vec3 )) => {
                             let startxref = number_from_digits(vec3[2]) as usize;
-                            return Done(rest3, (dictionary, startxref))
+                            return Ok((rest3, (dictionary, startxref)))
                         },
                         Incomplete(whatever) => {
                             return Incomplete(whatever);
@@ -758,9 +757,9 @@ mod tests {
 
     #[test]
     fn header_test() {
-        assert_eq!(nom::IResult::Done(b" ".as_bytes(), PdfVersion::Known { ver: b"1.0".to_vec() }),
+        assert_eq!(Ok((b" ".as_bytes(), PdfVersion::Known { ver: b"1.0".to_vec() })),
                    pdf_header(b"%PDF-1.0\r ".as_bytes()));
-        assert_eq!(nom::IResult::Done(b"\n ".as_bytes(), PdfVersion::Known { ver: b"2.0".to_vec() }),
+        assert_eq!(Ok((b"\n ".as_bytes(), PdfVersion::Known { ver: b"2.0".to_vec() })),
                    pdf_header("%PDF-2.0\r%なななな\n ".as_bytes()));
     }
 
@@ -966,7 +965,7 @@ mod tests {
         let x2 = b"xref\n0 6\n0000000003 65535 f \n0000000017 00000 n \n0000000081 00000 n \n0000000000 00007 f \n0000000331 00000 n \n0000000409 00000 n \ntrailer";
 
         match xref_table(x2[..].as_bytes()) {
-            Done(_rest, xrt) => {
+            Ok((_rest, xrt)) => {
                 assert_eq!(4, xrt.count_in_use());
                 assert_eq!(2, xrt.count_free());
                 assert_eq!(vec![1,2,4,5], xrt.in_use());
@@ -991,7 +990,7 @@ mod tests {
 
         let x3 =  b"xref\n0 1\n0000000000 65535 f \n3 1\n0000025325 00000 n \n23 2\n0000025518 00002 n \n0000025635 00000 n \n30 1\n0000025777 00000 n \ntrailer";
         match xref_table(x3[..].as_bytes()) {
-            Done(_rest, xrt) => {
+            Ok((_rest, xrt)) => {
                 assert_eq!(4, xrt.count_in_use());
                 assert_eq!(1, xrt.count_free());
                 assert_eq!(vec![3,23,24,30], xrt.in_use());
@@ -1027,7 +1026,7 @@ mod tests {
 
         match file_trailer(&trailer[..]) {
 
-            Done(_rest, (dict, offset)) => {
+            Ok((_rest, (dict, offset))) => {
 
                 assert_eq!(18799 as usize, offset);
                 match dict {
