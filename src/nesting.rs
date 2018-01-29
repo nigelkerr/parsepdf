@@ -282,7 +282,7 @@ fn recognize_stream( input: &[u8], len: usize ) -> IResult<&[u8], Vec<u8> >
         Ok((rest, _stream)) => {
             match take!(rest, len) {
                 Ok((rest2, bytes_of_stream)) => {
-                    match re_bytes_find!(rest2, r"^(\r\n|\r|\n)endstream") {
+                    match re_bytes_find!(rest2, r"^(\r\n|\r|\n)?endstream") {
                         Ok((rest3, _endstream)) => {
                             return Ok((rest3, bytes_of_stream[..].to_owned() ));
                         },
@@ -314,7 +314,8 @@ fn recognize_stream( input: &[u8], len: usize ) -> IResult<&[u8], Vec<u8> >
 
 
 // Stream objects § 7.3.8
-// these are a Dictionary that must have a /Length value, and the stream..endstream after it.
+// these are a Dictionary that must have a /Length value, direct or indirect,
+// and the stream..endstream after it.
 
 pub fn stream_object(input: &[u8]) -> IResult<&[u8], PdfObject>
 {
@@ -366,7 +367,7 @@ pub fn stream_object(input: &[u8]) -> IResult<&[u8], PdfObject>
             }
         },
         Ok((_rest, _wut)) => {
-            return Err(Err::Error(error_position!(input,ErrorKind::Custom(ErrorCodes::NegativeLengthInStreamDictionary as u32))));
+            return Err(Err::Error(error_position!(input,ErrorKind::Custom(ErrorCodes::CalledDictionaryAndGotSomethingElse as u32))));
         },
         Err(Err::Incomplete(whatever)) => {
             return Err(Err::Incomplete(whatever));
@@ -664,6 +665,10 @@ mod tests {
 
         assert_eq!(
             recognize_stream(b" stream\n__--__--__--__--\r\nendstream  ", 16),
+            Ok((b"  ".as_bytes(), b"__--__--__--__--"[..].to_owned()))
+        );
+        assert_eq!(
+            recognize_stream(b" stream\n__--__--__--__--endstream  ", 16),
             Ok((b"  ".as_bytes(), b"__--__--__--__--"[..].to_owned()))
         );
 
