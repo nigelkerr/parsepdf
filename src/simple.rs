@@ -187,7 +187,7 @@ fn byte_vec_from_hexadecimal_string(input: &[u8]) -> Result<Vec<u8>, nom::ErrorK
         if pair.len() == 2 {
             result.push((pair[0] << 4) + pair[1]);
         } else if pair.len() == 1 {
-            result.push((pair[0] << 4));
+            result.push(pair[0] << 4);
         }
     }
 

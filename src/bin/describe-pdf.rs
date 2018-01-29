@@ -66,7 +66,9 @@ fn process_file(possible_file: String) -> Result<(), PdfError> {
 fn get_trailer_and_xref(file: &mut File, file_len: u64) -> Result<(PdfObject, CrossReferenceTable, usize), PdfError> {
     let last_kaye = get_byte_array_from_file(file, (file_len - 1024) as usize, 1024 as usize)?;
     let (dict, startxref) = parse_trailer(&last_kaye)?;
-    let xref_bytes = get_byte_array_from_file(file, startxref, (file_len as usize - startxref))?;
+    let xref_bytes = get_byte_array_from_file(file,
+                                              startxref,
+                                              file_len as usize - startxref)?;
     match xref_table(&xref_bytes) {
         Ok((_rest, mut crt)) => {
             // assert something about _rest ?
