@@ -6,6 +6,13 @@ Try to learn nom, rust, and the PDF 2.0 spec by parsing PDFs.
 
 upgrade to nom4 wasn't bad at all, and enables some tidying up now.
 
+(later)Some of that cleanup involved trying to be able to use ? more often with the Result
+returns from nom, and that was troublesome.  nom::Err<&[u8]> is the crux of that: it needs
+a lifetime specified if you are mapping it to a custom error (which you must do, since the
+lifetime of that &[u8] is uncertain).  This has proved very difficult, enough that i've given
+up for the moment.  nom::Err does not implement std::error::Error (and maybe this is why),
+but that would make ? and friends usable.  as it is, we've got map_err() and friends.
+
 ## 2018-01-27
 
 Today, describe-pdf can sort of show you the contents of simple PDFS.  Had a bit of a go-around with the Stream
