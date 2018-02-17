@@ -202,7 +202,13 @@ named!(pub hexadecimal_string<&[u8],PdfObject>,
     )
 );
 
-
+named!(pub bare_hexadecimal_string<&[u8],PdfObject>,
+    do_parse!(
+        v: map_res!( take_while!( can_be_in_hexadecimal_string ), byte_vec_from_hexadecimal_string )
+        >>
+        ( PdfObject::String( v ))
+    )
+);
 
 // § 7.3.4.2 Literal Strings
 

@@ -10,6 +10,7 @@ extern crate regex;
 mod structs;
 mod simple;
 mod nesting;
+mod filters;
 
 pub use structs::*;
 pub use simple::*;
