@@ -1,5 +1,8 @@
 extern crate nom;
 
+use nom::*;
+use nom::ErrorKind;
+
 // given a filter, possibly some parameters, and some bytes,
 // return either some decoded bytes, or an error.
 // something over in the main library figures out how to get here
@@ -34,6 +37,21 @@ pub fn decode_asciihex(input: &Vec<u8>) -> Result<Vec<u8>, DecodingResponse> {
     }
 
 }
+
+
+
+//named!(enc_ascii85<&[u8],Vec<u8> >,
+//
+//);
+//
+//pub fn encode_ascii85(input: &Vec<u8>) -> Result<Vec<u8>, DecodingResponse> {
+//
+//}
+//
+//pub fn decode_ascii85(input: &Vec<u8>) -> Result<Vec<u8>, DecodingResponse> {
+//
+//
+//}
 
 #[cfg(test)]
 mod tests {
