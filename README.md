@@ -2,6 +2,11 @@
 
 Try to learn nom, rust, and the PDF 2.0 spec by parsing PDFs.
 
+## 2018-05-19
+
+start of filters merged here to master.  asciihex and ascii85 decoding functions and macros,
+but the filtering infrastructure not built yet to use them.
+
 ## 2018-01-28
 
 upgrade to nom4 wasn't bad at all, and enables some tidying up now.
