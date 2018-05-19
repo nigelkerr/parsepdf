@@ -63,25 +63,33 @@ fn can_be_in_ascii85_string(chr: u8) -> bool {
 
 // we are trusting that what came before worked out...
 fn byte_vec_from_ascii85_string(input: &[u8]) -> Result<Vec<u8>, nom::ErrorKind> {
+
+    println!("got input: {:?}", input);
+
     let mut result: Vec<u8> = Vec::new();
     let filtered: Vec<u8> = input.iter().filter(
         |&x| is_ascii85_digit(*x)
-    ).map(|&x| x - ADDEND).collect();
+    ).map(|&x| x ).collect();
 
     let mut pos = 0;
     let length = filtered.len();
 
     while pos < length {
+        println!("starting with pos {:?} length {:?} {:?}", pos, length, pos < length);
+
+        println!("filtered at {:?}: {:?}", pos, filtered[pos]);
         if filtered[pos] == 0x7A { // z special case
             result.push(0x0);
             result.push(0x0);
             result.push(0x0);
             result.push(0x0);
+            pos += 1;
             continue;
         }
 
-        let bytes_left = (length - pos);
+        let bytes_left = if (length - pos) > 5 { 5 } else { length - pos };
         if bytes_left < 2 {
+            println!("from bytes_left < 2 {:?}", bytes_left);
             return Err(nom::ErrorKind::Custom(1));
         }
 
@@ -106,14 +114,15 @@ fn byte_vec_from_ascii85_string(input: &[u8]) -> Result<Vec<u8>, nom::ErrorKind>
                 v += ((filtered[pos+2] - ADDEND) as u64 * C_85_2) + ((filtered[pos+3] - ADDEND) as u64 * C_85_1) + (filtered[pos+4] - ADDEND) as u64;
             },
             _ => {
+                println!("from bytes_left unexpected {:?}", bytes_left);
                 return Err(nom::ErrorKind::Custom(2));
             },
         }
 
-        let mut shift: u32 = 24;
+        let mut shift: u32 = 32;
         for _ in 0..bytes_needed {
-            result.push( (v >> shift) as u8 & 0xff );
             shift -= 8;
+            result.push( (v >> shift) as u8 & 0xff );
         }
 
         pos += bytes_needed + 1;
@@ -137,7 +146,8 @@ pub fn decode_ascii85(input: &Vec<u8>) -> Result<Vec<u8>, DecodingResponse> {
         Ok((remainder, v)) => {
             Ok(v)
         },
-        _ => {
+        Err(x) => {
+            println!("got something {:?}", x);
             Err(DecodingResponse::DecodeError)
         }
     }
@@ -158,6 +168,10 @@ mod tests {
     #[test]
     fn test_decode_ascii85() {
         assert_eq!(Ok(b"\x00\x00\x00\x00"[..].to_owned()), decode_ascii85(&b"z~>"[..].to_owned()));
+
+        assert_eq!(Ok(b"Man is distinguished, not only by his reason, but by this singular passion from other animals, which is a lust of the mind, that by a perseverance of delight in the continued and indefatigable generation of knowledge, exceeds the short vehemence of any carnal pleasure."[..].to_owned()),
+            decode_ascii85(&b"9jqo^BlbD-BleB1DJ+*+F(f,q/0JhKF<GL>Cj@.4Gp$d7F!,L7@<6@)/0JDEF<G%<+EV:2F!,O<DJ+*.@<*K0@<6L(Df-\\0Ec5e;DffZ(EZee.Bl.9pF\"AGXBPCsi+DGm>@3BB/F*&OCAfu2/AKYi(DIb:@FD,*)+C]U=@3BN#EcYf8ATD3s@q?d$AftVqCh[NqF<G:8+EV:.+Cf>-FD5W8ARlolDIal(DId<j@<?3r@:F%a+D58'ATD4$Bl@l3De:,-DJs`8ARoFb/0JMK@qB4^F!,R<AKZ&-DfTqBG%G>uD.RTpAKYo'+CT/5+Cei#DII?(E,9)oF*2M7/c~>"[..].to_owned())
+        )
     }
 
 
