@@ -5,9 +5,10 @@ authors = ["Nigel Kerr <nigel.kerr@gmail.com>"]
 
 [dependencies]
 approx="0.1.1"
+lzw = "0.10.0"
 
 [dependencies.nom]
-version = "^4.0.0"
+version = "^4.0"
 features = ["verbose-errors", "regexp"]
 
 [dependencies.regex]

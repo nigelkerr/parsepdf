@@ -1,3 +1,4 @@
+extern crate lzw;
 extern crate nom;
 
 use nom::*;
@@ -15,28 +16,27 @@ use simple::skip_whitespace;
 use simple::is_pdf_whitespace;
 use structs::PdfObject;
 
-#[derive(Debug,PartialEq,Eq)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum DecodingResponse {
     RefuseToDecode,
     DecodeError,
+    DecoderInitializationError,
 }
 
+
 pub fn decode_asciihex(input: &Vec<u8>) -> Result<Vec<u8>, DecodingResponse> {
-
     match bare_hexadecimal_string(&input[..]) {
-
         Ok((remainder, PdfObject::String(hex_part))) => {
             let skip_ws = skip_whitespace(remainder);
             if remainder[skip_ws] != b'>' {
                 return Err(DecodingResponse::DecodeError);
             }
             Ok(hex_part)
-        },
+        }
         _ => {
             Err(DecodingResponse::DecodeError)
         }
     }
-
 }
 
 const C_85_4: u64 = 85 * 85 * 85 * 85;
@@ -63,21 +63,15 @@ fn can_be_in_ascii85_string(chr: u8) -> bool {
 
 // we are trusting that what came before worked out...
 fn byte_vec_from_ascii85_string(input: &[u8]) -> Result<Vec<u8>, nom::ErrorKind> {
-
-    println!("got input: {:?}", input);
-
     let mut result: Vec<u8> = Vec::new();
     let filtered: Vec<u8> = input.iter().filter(
         |&x| is_ascii85_digit(*x)
-    ).map(|&x| x ).collect();
+    ).map(|&x| x).collect();
 
     let mut pos = 0;
     let length = filtered.len();
 
     while pos < length {
-        println!("starting with pos {:?} length {:?} {:?}", pos, length, pos < length);
-
-        println!("filtered at {:?}: {:?}", pos, filtered[pos]);
         if filtered[pos] == 0x7A { // z special case
             result.push(0x0);
             result.push(0x0);
@@ -89,40 +83,38 @@ fn byte_vec_from_ascii85_string(input: &[u8]) -> Result<Vec<u8>, nom::ErrorKind>
 
         let bytes_left = if (length - pos) > 5 { 5 } else { length - pos };
         if bytes_left < 2 {
-            println!("from bytes_left < 2 {:?}", bytes_left);
             return Err(nom::ErrorKind::Custom(1));
         }
 
         let mut bytes_needed = 4;
         let mut v: u64 = ((filtered[pos] - ADDEND) as u64 * C_85_4) +
-            ((filtered[pos+1] - ADDEND) as u64 * C_85_3);
+            ((filtered[pos + 1] - ADDEND) as u64 * C_85_3);
 
         match bytes_left {
             2 => {
                 bytes_needed = 1;
-                v += (PADDING * C_85_2)  + (PADDING * C_85_1)  + PADDING ;
-            },
+                v += (PADDING * C_85_2) + (PADDING * C_85_1) + PADDING;
+            }
             3 => {
                 bytes_needed = 2;
-                v += ((filtered[pos+2] - ADDEND) as u64 * C_85_2) + (PADDING * C_85_1)  + PADDING;
-            },
+                v += ((filtered[pos + 2] - ADDEND) as u64 * C_85_2) + (PADDING * C_85_1) + PADDING;
+            }
             4 => {
                 bytes_needed = 3;
-                v += ((filtered[pos+2] - ADDEND) as u64 * C_85_2) + ((filtered[pos+3] - ADDEND) as u64 * C_85_1) + PADDING;
-            },
+                v += ((filtered[pos + 2] - ADDEND) as u64 * C_85_2) + ((filtered[pos + 3] - ADDEND) as u64 * C_85_1) + PADDING;
+            }
             5 => {
-                v += ((filtered[pos+2] - ADDEND) as u64 * C_85_2) + ((filtered[pos+3] - ADDEND) as u64 * C_85_1) + (filtered[pos+4] - ADDEND) as u64;
-            },
+                v += ((filtered[pos + 2] - ADDEND) as u64 * C_85_2) + ((filtered[pos + 3] - ADDEND) as u64 * C_85_1) + (filtered[pos + 4] - ADDEND) as u64;
+            }
             _ => {
-                println!("from bytes_left unexpected {:?}", bytes_left);
                 return Err(nom::ErrorKind::Custom(2));
-            },
+            }
         }
 
         let mut shift: u32 = 32;
         for _ in 0..bytes_needed {
             shift -= 8;
-            result.push( (v >> shift) as u8 & 0xff );
+            result.push((v >> shift) as u8 & 0xff);
         }
 
         pos += bytes_needed + 1;
@@ -141,15 +133,59 @@ named!(pub bare_ascii85_sequence<&[u8],Vec<u8>>,
 );
 
 pub fn decode_ascii85(input: &Vec<u8>) -> Result<Vec<u8>, DecodingResponse> {
-
     match bare_ascii85_sequence(&input[..]) {
         Ok((remainder, v)) => {
             Ok(v)
-        },
-        Err(x) => {
-            println!("got something {:?}", x);
+        }
+        Err(_) => {
             Err(DecodingResponse::DecodeError)
         }
+    }
+}
+
+fn decode_lzw_earlychange(input: &Vec<u8>) -> Result<Vec<u8>, DecodingResponse> {
+    let compressed_length = input.len();
+
+    let mut decoder = lzw::DecoderEarlyChange::new(lzw::MsbReader::new(), 8);
+
+    let mut result: Vec<u8> = Vec::new();
+    let mut bytes_read = 0;
+
+    let mut compressed = &input[..];
+
+    while compressed.len() > 0 {
+        let (start, bytes) = decoder.decode_bytes(&compressed).unwrap();
+        compressed = &compressed[start..];
+        result.extend_from_slice(bytes);
+    }
+
+    Ok(result)
+}
+
+fn decode_lzw_normalchange(input: &Vec<u8>) -> Result<Vec<u8>, DecodingResponse> {
+    let compressed_length = input.len();
+
+    let mut decoder = lzw::Decoder::new(lzw::MsbReader::new(), 8);
+
+    let mut result: Vec<u8> = Vec::new();
+    let mut bytes_read = 0;
+
+    let mut compressed = &input[..];
+
+    while compressed.len() > 0 {
+        let (start, bytes) = decoder.decode_bytes(&compressed).unwrap();
+        compressed = &compressed[start..];
+        result.extend_from_slice(bytes);
+    }
+
+    Ok(result)
+}
+
+pub fn decode_lzw(input: &Vec<u8>, early: bool) -> Result<Vec<u8>, DecodingResponse> {
+    if early {
+        decode_lzw_earlychange(input)
+    } else {
+        decode_lzw_normalchange(input)
     }
 }
 
@@ -159,10 +195,8 @@ mod tests {
 
     #[test]
     fn test_decode_asciihex() {
-
         assert_eq!(Ok(b"@@"[..].to_owned()), decode_asciihex(&b"4040>"[..].to_owned()));
         assert_eq!(Ok(b"@@"[..].to_owned()), decode_asciihex(&b"4 0  4\n0\t>"[..].to_owned()));
-
     }
 
     #[test]
@@ -170,10 +204,22 @@ mod tests {
         assert_eq!(Ok(b"\x00\x00\x00\x00"[..].to_owned()), decode_ascii85(&b"z~>"[..].to_owned()));
 
         assert_eq!(Ok(b"Man is distinguished, not only by his reason, but by this singular passion from other animals, which is a lust of the mind, that by a perseverance of delight in the continued and indefatigable generation of knowledge, exceeds the short vehemence of any carnal pleasure."[..].to_owned()),
-            decode_ascii85(&b"9jqo^BlbD-BleB1DJ+*+F(f,q/0JhKF<GL>Cj@.4Gp$d7F!,L7@<6@)/0JDEF<G%<+EV:2F!,O<DJ+*.@<*K0@<6L(Df-\\0Ec5e;DffZ(EZee.Bl.9pF\"AGXBPCsi+DGm>@3BB/F*&OCAfu2/AKYi(DIb:@FD,*)+C]U=@3BN#EcYf8ATD3s@q?d$AftVqCh[NqF<G:8+EV:.+Cf>-FD5W8ARlolDIal(DId<j@<?3r@:F%a+D58'ATD4$Bl@l3De:,-DJs`8ARoFb/0JMK@qB4^F!,R<AKZ&-DfTqBG%G>uD.RTpAKYo'+CT/5+Cei#DII?(E,9)oF*2M7/c~>"[..].to_owned())
+                   decode_ascii85(&b"9jqo^BlbD-BleB1DJ+*+F(f,q/0JhKF<GL>Cj@.4Gp$d7F!,L7@<6@)/0JDEF<G%<+EV:2F!,O<DJ+*.@<*K0@<6L(Df-\\0Ec5e;DffZ(EZee.Bl.9pF\"AGXBPCsi+DGm>@3BB/F*&OCAfu2/AKYi(DIb:@FD,*)+C]U=@3BN#EcYf8ATD3s@q?d$AftVqCh[NqF<G:8+EV:.+Cf>-FD5W8ARlolDIal(DId<j@<?3r@:F%a+D58'ATD4$Bl@l3De:,-DJs`8ARoFb/0JMK@qB4^F!,R<AKZ&-DfTqBG%G>uD.RTpAKYo'+CT/5+Cei#DII?(E,9)oF*2M7/c~>"[..].to_owned())
         )
     }
 
+    #[test]
+    fn test_decode_lzw() {
+        let input: Vec<u8> = vec![0x80, 0x0b, 0x60, 0x50, 0x22, 0x0c, 0x0c, 0x85, 0x01];
+        let data = b"-----A---B".to_vec();
 
+        assert_eq!(
+            Ok(data),
+            decode_lzw(&input, true)
+        );
 
+        let data = include_bytes!("../assets/lzw.bitstream");
+        println!("got: {:?}", decode_lzw(&data[..].to_vec(), true));
+        println!("exp: {:?}", b"q\r660 0 0 907 0 0 cm\r/Im1 Do\rQ\r");
+    }
 }
