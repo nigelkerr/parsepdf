@@ -15,6 +15,7 @@ use simple::bare_hexadecimal_string;
 use simple::skip_whitespace;
 use simple::is_pdf_whitespace;
 use structs::PdfObject;
+use std::io;
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum DecodingResponse {
@@ -143,50 +144,46 @@ pub fn decode_ascii85(input: &Vec<u8>) -> Result<Vec<u8>, DecodingResponse> {
     }
 }
 
-fn decode_lzw_earlychange(input: &Vec<u8>) -> Result<Vec<u8>, DecodingResponse> {
-    let compressed_length = input.len();
 
-    let mut decoder = lzw::DecoderEarlyChange::new(lzw::MsbReader::new(), 8);
-
-    let mut result: Vec<u8> = Vec::new();
-    let mut bytes_read = 0;
-
-    let mut compressed = &input[..];
-
-    while compressed.len() > 0 {
-        let (start, bytes) = decoder.decode_bytes(&compressed).unwrap();
-        compressed = &compressed[start..];
-        result.extend_from_slice(bytes);
-    }
-
-    Ok(result)
+trait LzwDecoder {
+    fn dispatch_decode_bytes(&mut self, bytes: &[u8]) -> io::Result<(usize, &[u8])>;
 }
 
-fn decode_lzw_normalchange(input: &Vec<u8>) -> Result<Vec<u8>, DecodingResponse> {
-    let compressed_length = input.len();
-
-    let mut decoder = lzw::Decoder::new(lzw::MsbReader::new(), 8);
-
-    let mut result: Vec<u8> = Vec::new();
-    let mut bytes_read = 0;
-
-    let mut compressed = &input[..];
-
-    while compressed.len() > 0 {
-        let (start, bytes) = decoder.decode_bytes(&compressed).unwrap();
-        compressed = &compressed[start..];
-        result.extend_from_slice(bytes);
+impl LzwDecoder for lzw::Decoder<lzw::MsbReader> {
+    fn dispatch_decode_bytes(&mut self, bytes: &[u8]) -> io::Result<(usize, &[u8])>
+    {
+        self.decode_bytes(bytes)
     }
-
-    Ok(result)
+}
+impl LzwDecoder for lzw::DecoderEarlyChange<lzw::MsbReader> {
+    fn dispatch_decode_bytes(&mut self, bytes: &[u8]) -> io::Result<(usize, &[u8])>
+    {
+        self.decode_bytes(bytes)
+    }
 }
 
 pub fn decode_lzw(input: &Vec<u8>, early: bool) -> Result<Vec<u8>, DecodingResponse> {
-    if early {
-        decode_lzw_earlychange(input)
+
+    let compressed_length = input.len();
+
+    let mut decoder: Box<LzwDecoder> = if early {
+        Box::new(lzw::DecoderEarlyChange::new(lzw::MsbReader::new(), 8))
     } else {
-        decode_lzw_normalchange(input)
+        Box::new(lzw::Decoder::new(lzw::MsbReader::new(), 8))
+    };
+
+    let mut result: Vec<u8> = Vec::new();
+    let mut bytes_read = 0;
+
+    let mut compressed = &input[..];
+
+    while compressed.len() > 0 {
+        let (start, bytes) = decoder.dispatch_decode_bytes(&compressed).unwrap();
+        compressed = &compressed[start..];
+        result.extend_from_slice(bytes);
     }
+
+    Ok(result)
 }
 
 #[cfg(test)]
@@ -219,7 +216,9 @@ mod tests {
         );
 
         let data = include_bytes!("../assets/lzw.bitstream");
-        println!("got: {:?}", decode_lzw(&data[..].to_vec(), true));
-        println!("exp: {:?}", b"q\r660 0 0 907 0 0 cm\r/Im1 Do\rQ\r");
+        assert_eq!(
+            Ok(b"q\r660 0 0 907 0 0 cm\r/Im1 Do\rQ\r".to_vec()),
+            decode_lzw(&data[..].to_vec(), true)
+        );
     }
 }
