@@ -1,5 +1,6 @@
 extern crate lzw;
 extern crate nom;
+extern crate inflate;
 
 use nom::*;
 use nom::ErrorKind;
@@ -144,7 +145,8 @@ pub fn decode_ascii85(input: &Vec<u8>) -> Result<Vec<u8>, DecodingResponse> {
     }
 }
 
-
+// this feels less clumsy than the full duplication, but still clumsy.
+// can't i recognize some other class as implementing a trait merely via interface?
 trait LzwDecoder {
     fn dispatch_decode_bytes(&mut self, bytes: &[u8]) -> io::Result<(usize, &[u8])>;
 }
@@ -186,6 +188,19 @@ pub fn decode_lzw(input: &Vec<u8>, early: bool) -> Result<Vec<u8>, DecodingRespo
     Ok(result)
 }
 
+pub fn decode_flate(input: &Vec<u8>) -> Result<Vec<u8>, DecodingResponse> {
+
+    match inflate::inflate_bytes_zlib(input.as_bytes()) {
+        Ok(result) => {
+            Ok(result)
+        },
+        Err(s) => {
+            Err(DecodingResponse::DecodeError)
+        }
+    }
+
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -207,6 +222,9 @@ mod tests {
 
     #[test]
     fn test_decode_lzw() {
+
+        // finding actual PDF examples of LZW on the ground difficult
+
         let input: Vec<u8> = vec![0x80, 0x0b, 0x60, 0x50, 0x22, 0x0c, 0x0c, 0x85, 0x01];
         let data = b"-----A---B".to_vec();
 
@@ -219,6 +237,15 @@ mod tests {
         assert_eq!(
             Ok(b"q\r660 0 0 907 0 0 cm\r/Im1 Do\rQ\r".to_vec()),
             decode_lzw(&data[..].to_vec(), true)
+        );
+    }
+
+    #[test]
+    fn test_decode_flate() {
+        let data = include_bytes!("../assets/flate.bitstream");
+        assert_eq!(
+            Ok(b"q\nBT\n36 806 Td\nET\nQ\nq 1 0 0 1 0 0 cm /Xf1 Do Q\n".to_vec()),
+            decode_flate(&data[..].to_vec())
         );
     }
 }

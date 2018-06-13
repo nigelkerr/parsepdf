@@ -6,6 +6,7 @@ authors = ["Nigel Kerr <nigel.kerr@gmail.com>"]
 [dependencies]
 approx="0.1.1"
 lzw = "0.10.0"
+inflate = "0.4.2"
 
 [dependencies.nom]
 version = "^4.0"

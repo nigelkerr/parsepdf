@@ -4,3 +4,4 @@ Cargo.lock
 .idea
 parsepdf.iml
 parse-pdf.iml
+*~
