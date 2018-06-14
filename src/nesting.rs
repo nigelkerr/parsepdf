@@ -316,6 +316,7 @@ fn recognize_stream( input: &[u8], len: usize ) -> IResult<&[u8], Vec<u8> >
 // Stream objects § 7.3.8
 // these are a Dictionary that must have a /Length value, direct or indirect,
 // and the stream..endstream after it.
+// this could be an xref stream, but we'll need somehow to check for /Type...
 
 pub fn stream_object(input: &[u8]) -> IResult<&[u8], PdfObject>
 {

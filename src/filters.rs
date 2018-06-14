@@ -247,6 +247,31 @@ pub fn decode_rle(input: &Vec<u8>) -> Result<Vec<u8>, DecodingResponse> {
     }
 }
 
+fn refuse_to_decode() -> Result<Vec<u8>, DecodingResponse> {
+    Err(DecodingResponse::RefuseToDecode)
+}
+
+pub fn decode_ccittfax(input: &Vec<u8>) -> Result<Vec<u8>, DecodingResponse> {
+    refuse_to_decode()
+}
+
+pub fn decode_jbig2(input: &Vec<u8>) -> Result<Vec<u8>, DecodingResponse> {
+    refuse_to_decode()
+}
+
+pub fn decode_dct(input: &Vec<u8>) -> Result<Vec<u8>, DecodingResponse> {
+    refuse_to_decode()
+}
+
+pub fn decode_jpx(input: &Vec<u8>) -> Result<Vec<u8>, DecodingResponse> {
+    refuse_to_decode()
+}
+
+pub fn decode_crypt(input: &Vec<u8>) -> Result<Vec<u8>, DecodingResponse> {
+    refuse_to_decode()
+}
+
+
 #[cfg(test)]
 mod tests {
     use super::*;
