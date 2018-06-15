@@ -20,6 +20,7 @@ use std::io;
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum DecodingResponse {
+    NotImplementedYet,
     RefuseToDecode,
     DecodeError,
     DecoderInitializationError,
@@ -157,6 +158,7 @@ impl LzwDecoder for lzw::Decoder<lzw::MsbReader> {
         self.decode_bytes(bytes)
     }
 }
+
 impl LzwDecoder for lzw::DecoderEarlyChange<lzw::MsbReader> {
     fn dispatch_decode_bytes(&mut self, bytes: &[u8]) -> io::Result<(usize, &[u8])>
     {
@@ -165,7 +167,6 @@ impl LzwDecoder for lzw::DecoderEarlyChange<lzw::MsbReader> {
 }
 
 pub fn decode_lzw(input: &Vec<u8>, early: bool) -> Result<Vec<u8>, DecodingResponse> {
-
     let compressed_length = input.len();
 
     let mut decoder: Box<LzwDecoder> = if early {
@@ -175,7 +176,6 @@ pub fn decode_lzw(input: &Vec<u8>, early: bool) -> Result<Vec<u8>, DecodingRespo
     };
 
     let mut result: Vec<u8> = Vec::new();
-    let mut bytes_read = 0;
 
     let mut compressed = &input[..];
 
@@ -189,16 +189,14 @@ pub fn decode_lzw(input: &Vec<u8>, early: bool) -> Result<Vec<u8>, DecodingRespo
 }
 
 pub fn decode_flate(input: &Vec<u8>) -> Result<Vec<u8>, DecodingResponse> {
-
     match inflate::inflate_bytes_zlib(input.as_bytes()) {
         Ok(result) => {
             Ok(result)
-        },
+        }
         Err(s) => {
             Err(DecodingResponse::DecodeError)
         }
     }
-
 }
 
 named!(decode_rle_literal<&[u8], Vec<u8>>,
@@ -271,6 +269,115 @@ pub fn decode_crypt(input: &Vec<u8>) -> Result<Vec<u8>, DecodingResponse> {
     refuse_to_decode()
 }
 
+fn apply_tiff_predictor_function(input: &Vec<u8>, colors: u32, bits_per_component: u32, columns: u32) -> Result<Vec<u8>, DecodingResponse> {
+    let slinput = input.as_slice();
+    let mut result: Vec<u8> = Vec::new();
+    let bytes_per_row: usize = ((bits_per_component * colors * columns) as usize + 7) / 8;
+    let rows: usize = input.len() / bytes_per_row as usize;
+
+    for row in 0..rows {
+        let mut rinput = &slinput[(bytes_per_row * row)..(bytes_per_row * (row + 1))];
+        let mut current_row_unpacked: Vec<u32> = Vec::new();
+        let mut bits: usize = 0;
+        // copy accross samples of the first pixel
+        for _ in (0..colors) {
+            match take_bits!((rinput,bits), u32, bits_per_component as usize) {
+                Ok(((ninput, nbits), value)) => {
+                    current_row_unpacked.push(value);
+                    rinput = ninput;
+                    bits = nbits;
+                }
+                _ => {
+                    return Err(DecodingResponse::DecodeError);
+                }
+            }
+        }
+
+        // deal with the rest of the pixels, refering to recently added
+        for col in (0..(columns - 1) * colors) {
+            match take_bits!((rinput,bits), u32, bits_per_component as usize) {
+                Ok(((ninput, nbits), value)) => {
+                    let prev = current_row_unpacked[col as usize];
+                    // the modulus keeps the value within the range of bits_per_component
+                    current_row_unpacked.push((value + prev) % (2_u32.pow(bits_per_component)));
+                    rinput = ninput;
+                    bits = nbits;
+                }
+                _ => {
+                    return Err(DecodingResponse::DecodeError);
+                }
+            }
+        }
+
+        // now pack current row unpacked into the result vec<u8>
+
+        if bits_per_component % 8 == 0 {
+            let bytes_per_component = bits_per_component / 8;
+            for code in current_row_unpacked.iter() {
+                for i in (0..bytes_per_component).rev() {
+                    result.push(((code >> (i * 8)) & 0x000000ff) as u8);
+                }
+            }
+        } else {
+            let mut wip_byte: u8 = 0;
+            let mut wip_bits: u32 = 0;
+
+            'outer: for code in current_row_unpacked.iter() {
+
+                let mut bits_left = bits_per_component;
+
+                // eliminate wip if we can, possibly making new wip
+                if wip_bits > 0 {
+                    if bits_left < (8 - wip_bits) {
+                        wip_byte = wip_byte | ((code << ((8 - wip_bits) - bits_left)) as u8);
+                        wip_bits += bits_left;
+                        continue 'outer; // because we need to fill up the byte
+                    } else {
+                        wip_byte = wip_byte | (((code >> (bits_left - (8 - wip_bits))) & 0x000000ff) as u8);
+                        result.push(wip_byte);
+                        bits_left = bits_left - (8 - wip_bits);
+                        wip_byte = 0;
+                        wip_bits = 0;
+                    }
+                }
+
+                while bits_left > 8 {
+                    result.push(((code >> (bits_left - 8)) & 0x000000ff) as u8);
+                    bits_left = bits_left - 8;
+                }
+                wip_byte = ((code << (8 - bits_left)) & 0x000000ff) as u8;
+                wip_bits = bits_left as u32;
+
+            }
+
+            if wip_bits != 0 {
+                result.push(wip_byte);
+            }
+        }
+    }
+
+    Ok(result)
+}
+
+fn apply_png_predictor_function(input: &Vec<u8>, colors: u32, bits_per_component: u32, columns: u32) -> Result<Vec<u8>, DecodingResponse> {
+    Err(DecodingResponse::NotImplementedYet)
+}
+
+pub fn apply_predictor_function(input: &Vec<u8>, predictor: u8, colors: u32, bits_per_component: u32, columns: u32) -> Result<Vec<u8>, DecodingResponse> {
+    match predictor {
+        2 => {
+            apply_tiff_predictor_function(input, colors, bits_per_component, columns)
+        }
+        10 | 11 | 12 | 13 | 14 | 15 => {
+            apply_png_predictor_function(input, colors, bits_per_component, columns)
+        }
+        _ => {
+            let mut accum = Vec::new();
+            accum.extend(input);
+            Ok(accum)
+        }
+    }
+}
 
 #[cfg(test)]
 mod tests {
@@ -380,6 +487,63 @@ mod tests {
         assert_eq!(
             Ok(b"bbc".to_vec()),
             decode_rle(&b"\xffb\x00c\x80"[..].to_vec())
+        );
+    }
+
+
+    #[test]
+    fn basic_tiff_predictor_test() {
+
+        // 2 colors, 8 bits, 3 columns
+        let input: Vec<u8> = vec![0x80, 0x00, 0x01, 0x00, 0x03, 0x00];
+        let output: Vec<u8> = vec![0x80, 0x00, 0x81, 0x00, 0x84, 0x00];
+        let output2: Vec<u8> = vec![0x80, 0x00, 0x81, 0x00, 0x84, 0x00];
+        assert_eq!(
+            Ok(output),
+            apply_tiff_predictor_function(&input, 2, 8, 3)
+        );
+        assert_eq!(
+            Ok(output2),
+            apply_predictor_function(&input, 2, 2, 8, 3)
+        );
+
+        // 2 colors, 4 bits, 4 columns
+        let input: Vec<u8> = vec![0x80, 0x00, 0xf0, 0x00];
+        let output: Vec<u8> = vec![0x80, 0x80, 0x70, 0x70];
+        let output2: Vec<u8> = vec![0x80, 0x80, 0x70, 0x70];
+        assert_eq!(
+            Ok(output),
+            apply_tiff_predictor_function(&input, 2, 4, 4)
+        );
+        assert_eq!(
+            Ok(output2),
+            apply_predictor_function(&input, 2, 2, 4, 4)
+        );
+
+        // 2 colors, 4 bits, 2 columns (and there by 2 rows...)
+        let input: Vec<u8> = vec![0x80, 0x00, 0xf0, 0x00];
+        let output: Vec<u8> = vec![0x80, 0x80, 0xf0, 0xf0];
+        let output2: Vec<u8> = vec![0x80, 0x80, 0xf0, 0xf0];
+        assert_eq!(
+            Ok(output),
+            apply_tiff_predictor_function(&input, 2, 4, 2)
+        );
+        assert_eq!(
+            Ok(output2),
+            apply_predictor_function(&input, 2, 2, 4, 2)
+        );
+
+        // 2 colors, 7 bits, 3 columns
+        let input: Vec<u8> = vec![0xfe, 0x00, 0x08, 0x00, 0x60, 0x00];
+        let output: Vec<u8> = vec![0xfe, 0x00, 0x00, 0x00, 0x60, 0x00];
+        let output2: Vec<u8> = vec![0xfe, 0x00, 0x00, 0x00, 0x60, 0x00];
+        assert_eq!(
+            Ok(output),
+            apply_tiff_predictor_function(&input, 2, 7, 3)
+        );
+        assert_eq!(
+            Ok(output2),
+            apply_predictor_function(&input, 2, 2, 7, 3)
         );
     }
 }
