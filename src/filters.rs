@@ -497,52 +497,32 @@ mod tests {
         // 2 colors, 8 bits, 3 columns
         let input: Vec<u8> = vec![0x80, 0x00, 0x01, 0x00, 0x03, 0x00];
         let output: Vec<u8> = vec![0x80, 0x00, 0x81, 0x00, 0x84, 0x00];
-        let output2: Vec<u8> = vec![0x80, 0x00, 0x81, 0x00, 0x84, 0x00];
         assert_eq!(
             Ok(output),
-            apply_tiff_predictor_function(&input, 2, 8, 3)
-        );
-        assert_eq!(
-            Ok(output2),
             apply_predictor_function(&input, 2, 2, 8, 3)
         );
 
         // 2 colors, 4 bits, 4 columns
         let input: Vec<u8> = vec![0x80, 0x00, 0xf0, 0x00];
         let output: Vec<u8> = vec![0x80, 0x80, 0x70, 0x70];
-        let output2: Vec<u8> = vec![0x80, 0x80, 0x70, 0x70];
         assert_eq!(
             Ok(output),
-            apply_tiff_predictor_function(&input, 2, 4, 4)
-        );
-        assert_eq!(
-            Ok(output2),
             apply_predictor_function(&input, 2, 2, 4, 4)
         );
 
         // 2 colors, 4 bits, 2 columns (and there by 2 rows...)
         let input: Vec<u8> = vec![0x80, 0x00, 0xf0, 0x00];
         let output: Vec<u8> = vec![0x80, 0x80, 0xf0, 0xf0];
-        let output2: Vec<u8> = vec![0x80, 0x80, 0xf0, 0xf0];
         assert_eq!(
             Ok(output),
-            apply_tiff_predictor_function(&input, 2, 4, 2)
-        );
-        assert_eq!(
-            Ok(output2),
             apply_predictor_function(&input, 2, 2, 4, 2)
         );
 
         // 2 colors, 7 bits, 3 columns
         let input: Vec<u8> = vec![0xfe, 0x00, 0x08, 0x00, 0x60, 0x00];
         let output: Vec<u8> = vec![0xfe, 0x00, 0x00, 0x00, 0x60, 0x00];
-        let output2: Vec<u8> = vec![0xfe, 0x00, 0x00, 0x00, 0x60, 0x00];
         assert_eq!(
             Ok(output),
-            apply_tiff_predictor_function(&input, 2, 7, 3)
-        );
-        assert_eq!(
-            Ok(output2),
             apply_predictor_function(&input, 2, 2, 7, 3)
         );
     }
