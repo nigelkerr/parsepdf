@@ -293,7 +293,7 @@ fn apply_tiff_predictor_function(input: &Vec<u8>, colors: u32, bits_per_componen
             }
         }
 
-        // deal with the rest of the pixels, refering to recently added
+        // deal with the rest of the pixels, referring to recently added
         for col in (0..(columns - 1) * colors) {
             match take_bits!((rinput,bits), u32, bits_per_component as usize) {
                 Ok(((ninput, nbits), value)) => {
@@ -351,7 +351,7 @@ fn apply_tiff_predictor_function(input: &Vec<u8>, colors: u32, bits_per_componen
             }
 
             if wip_bits != 0 {
-                result.push(wip_byte);
+                result.push(wip_byte); // and her leftover bits are 0
             }
         }
     }
