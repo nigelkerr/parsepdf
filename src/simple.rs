@@ -1,15 +1,15 @@
 extern crate nom;
 
-use nom::*;
 use nom::digit;
 use nom::ErrorKind;
+use nom::*;
 use std::str;
 use std::str::FromStr;
 
+use structs::CrossReferenceTable;
 use structs::ErrorCodes;
 use structs::PdfObject;
 use structs::PdfVersion;
-use structs::CrossReferenceTable;
 
 use nesting::dictionary_object;
 
@@ -43,8 +43,6 @@ named!(pub pdf_header<&[u8],PdfVersion>,
         ( ver )
     )
 );
-
-
 
 #[inline]
 pub fn is_not_line_end_chars(chr: u8) -> bool {
@@ -120,13 +118,7 @@ named!(pub comment<&[u8],PdfObject>,
 // "Table 1 -- White space characters"
 #[inline]
 pub fn is_pdf_whitespace(chr: u8) -> bool {
-    (chr == 0x00 ||
-        chr == 0x09 ||
-        chr == 0x0A ||
-        chr == 0x0C ||
-        chr == 0x0D ||
-        chr == 0x20
-    )
+    (chr == 0x00 || chr == 0x09 || chr == 0x0A || chr == 0x0C || chr == 0x0D || chr == 0x20)
 }
 
 named!(pub recognize_some_ws<&[u8],&[u8]>,
@@ -140,7 +132,7 @@ pub fn skip_whitespace(input: &[u8]) -> usize {
     match ws_iresult {
         Ok((_, recognized)) => {
             return recognized.len();
-        },
+        }
         _ => {
             return 0;
         }
@@ -152,8 +144,7 @@ pub fn skip_whitespace(input: &[u8]) -> usize {
 
 #[inline]
 fn can_be_in_hexadecimal_string(chr: u8) -> bool {
-    is_hex_digit(chr) ||
-        is_pdf_whitespace(chr)
+    is_hex_digit(chr) || is_pdf_whitespace(chr)
 }
 
 named!(maybe_hexadecimal_string<&[u8],&[u8]>,
@@ -179,9 +170,11 @@ pub fn from_hex(chr: u8) -> u8 {
 // we are trusting that what came before worked out...
 fn byte_vec_from_hexadecimal_string(input: &[u8]) -> Result<Vec<u8>, nom::ErrorKind> {
     let mut result: Vec<u8> = Vec::new();
-    let filtered: Vec<u8> = input.iter().filter(
-        |&x| nom::is_hex_digit(*x)
-    ).map(|&x| from_hex(x)).collect();
+    let filtered: Vec<u8> = input
+        .iter()
+        .filter(|&x| nom::is_hex_digit(*x))
+        .map(|&x| from_hex(x))
+        .collect();
 
     for pair in filtered.chunks(2) {
         if pair.len() == 2 {
@@ -232,7 +225,7 @@ fn could_have_more_octal_digits(v: i32, digits: usize) -> bool {
 /// determine if we have a valid pdf literal string,
 /// make a sequence of decoded data bytes from the raw byte sequence of
 /// the PDF literal string.
-fn recognize_literal_string(input: &[u8]) -> IResult<&[u8], Vec<u8> > {
+fn recognize_literal_string(input: &[u8]) -> IResult<&[u8], Vec<u8>> {
     let mut result: Vec<u8> = Vec::new();
 
     let input_length = input.input_len();
@@ -261,14 +254,16 @@ fn recognize_literal_string(input: &[u8]) -> IResult<&[u8], Vec<u8> > {
     let mut number_octal_digits: usize = 0;
     let mut index = 0;
 
-    'outer:
-    for (idx, item) in input.iter_indices() {
+    'outer: for (idx, item) in input.iter_indices() {
         let chr = item;
         index = idx;
 
-        if ! inside {
+        if !inside {
             if chr != b'(' {
-                return Err(Err::Error(error_position!(input,ErrorKind::Custom(ErrorCodes::ExpectedStringStart as u32))));
+                return Err(Err::Error(error_position!(
+                    input,
+                    ErrorKind::Custom(ErrorCodes::ExpectedStringStart as u32)
+                )));
             }
             inside = true;
             // and then head to the switch below.  re-write this.
@@ -296,21 +291,11 @@ fn recognize_literal_string(input: &[u8]) -> IResult<&[u8], Vec<u8> > {
                     // they both MUST be rendered into the result as \n
                     was_escaped_carriage_return = true;
                 }
-                b'n' => {
-                    result.push(b'\n')
-                }
-                b'r' => {
-                    result.push(b'\r')
-                }
-                b't' => {
-                    result.push(b'\t')
-                }
-                b'b' => {
-                    result.push(0x08 as u8)
-                }
-                b'f' => {
-                    result.push(0x0c as u8)
-                }
+                b'n' => result.push(b'\n'),
+                b'r' => result.push(b'\r'),
+                b't' => result.push(b'\t'),
+                b'b' => result.push(0x08 as u8),
+                b'f' => result.push(0x0c as u8),
                 b'(' | b')' | b'\\' => {
                     result.push(chr);
                 }
@@ -320,7 +305,10 @@ fn recognize_literal_string(input: &[u8]) -> IResult<&[u8], Vec<u8> > {
                 }
                 _ => {
                     // anything outside the above gets us an error
-                    return Err(Err::Error(error_position!(input,ErrorKind::Custom(ErrorCodes::UnrecognizedEscapeSequence as u32))));
+                    return Err(Err::Error(error_position!(
+                        input,
+                        ErrorKind::Custom(ErrorCodes::UnrecognizedEscapeSequence as u32)
+                    )));
                 }
             }
             was_escape_char = false;
@@ -328,8 +316,10 @@ fn recognize_literal_string(input: &[u8]) -> IResult<&[u8], Vec<u8> > {
         }
 
         if number_octal_digits > 0 {
-            if could_have_more_octal_digits(current_octal_value, number_octal_digits) &&
-                (chr == b'0' || chr == b'1' || chr == b'2' || chr == b'3' || chr == b'4' || chr == b'5' || chr == b'6' || chr == b'7') {
+            if could_have_more_octal_digits(current_octal_value, number_octal_digits)
+                && (chr == b'0' || chr == b'1' || chr == b'2' || chr == b'3' || chr == b'4'
+                    || chr == b'5' || chr == b'6' || chr == b'7')
+            {
                 number_octal_digits += 1;
                 current_octal_value = (current_octal_value << 3) + ((chr as u8 - '0' as u8) as i32);
                 continue;
@@ -370,10 +360,12 @@ fn recognize_literal_string(input: &[u8]) -> IResult<&[u8], Vec<u8> > {
     // not the 0 branch
     match parens_depth {
         0 => {}
-        _ => { return Err(Err::Incomplete(Needed::Unknown)); }
+        _ => {
+            return Err(Err::Incomplete(Needed::Unknown));
+        }
     }
     // +1 because the last index we look at is the final ) itself
-    Ok((input.slice(index+1..), result))
+    Ok((input.slice(index + 1..), result))
 }
 
 named!(pub literal_string<&[u8],PdfObject>,
@@ -400,8 +392,7 @@ named!(pub null_object<&[u8],PdfObject>,
 // § 7.3.5 Name objects
 
 /// recognize a Name object, returning a vec of the bytes of the decoded form of the name.
-pub fn recognize_name_object(input: &[u8]) -> IResult<&[u8], Vec<u8>>
-{
+pub fn recognize_name_object(input: &[u8]) -> IResult<&[u8], Vec<u8>> {
     let mut result: Vec<u8> = Vec::new();
 
     let input_length = input.input_len();
@@ -429,35 +420,42 @@ pub fn recognize_name_object(input: &[u8]) -> IResult<&[u8], Vec<u8>>
                     continue;
                 }
                 _ => {
-                    return Err(Err::Error(error_position!(input,ErrorKind::Custom(ErrorCodes::NameNotStartWithSlash as u32)))) ;
+                    return Err(Err::Error(error_position!(
+                        input,
+                        ErrorKind::Custom(ErrorCodes::NameNotStartWithSlash as u32)
+                    )));
                 }
             }
         }
 
         if was_number_sign {
             match count_hex_digits {
-                0 | 1 => {
-                    match is_hex_digit(chr as u8) {
-                        true => {
-                            current_hex_value = (current_hex_value << 4) + from_hex(chr as u8);
-                            count_hex_digits += 1;
+                0 | 1 => match is_hex_digit(chr as u8) {
+                    true => {
+                        current_hex_value = (current_hex_value << 4) + from_hex(chr as u8);
+                        count_hex_digits += 1;
 
-                            if count_hex_digits > 1 {
-                                result.push(current_hex_value);
-                                current_hex_value = 0;
-                                count_hex_digits = 0;
-                                was_number_sign = false;
-                            }
-                            continue;
+                        if count_hex_digits > 1 {
+                            result.push(current_hex_value);
+                            current_hex_value = 0;
+                            count_hex_digits = 0;
+                            was_number_sign = false;
                         }
-                        false => {
-                            return Err(Err::Error(error_position!(input,ErrorKind::Custom(ErrorCodes::ExpectedHexDigit as u32))));
-                        }
+                        continue;
                     }
-                }
+                    false => {
+                        return Err(Err::Error(error_position!(
+                            input,
+                            ErrorKind::Custom(ErrorCodes::ExpectedHexDigit as u32)
+                        )));
+                    }
+                },
                 // how will we ever get here?
                 _ => {
-                    return Err(Err::Error(error_position!(input,ErrorKind::Custom(ErrorCodes::TooManyHexDigits as u32))));
+                    return Err(Err::Error(error_position!(
+                        input,
+                        ErrorKind::Custom(ErrorCodes::TooManyHexDigits as u32)
+                    )));
                 }
             }
         }
@@ -468,19 +466,26 @@ pub fn recognize_name_object(input: &[u8]) -> IResult<&[u8], Vec<u8>>
                 continue;
             }
             b'\x00' => {
-                return Err(Err::Error(error_position!(input,ErrorKind::Custom(ErrorCodes::HexStringIncludesZeroByte as u32))));
+                return Err(Err::Error(error_position!(
+                    input,
+                    ErrorKind::Custom(ErrorCodes::HexStringIncludesZeroByte as u32)
+                )));
             }
-            b'\n' | b'\r' | b'\t' | b' ' | b'\x0C' | b'/' | b'(' | b')' | b'<' | b'>' | b'[' | b']' | b'{' | b'}' | b'%' => {
+            b'\n' | b'\r' | b'\t' | b' ' | b'\x0C' | b'/' | b'(' | b')' | b'<' | b'>' | b'['
+            | b']' | b'{' | b'}' | b'%' => {
                 // unescaped whitespace and unescaped delimiters end the name
                 return Ok((input.slice(idx..), result));
             }
-            b'\x21' ... b'\x7e' => {
+            b'\x21'...b'\x7e' => {
                 result.push(chr);
                 // glam!
             }
             _ => {
                 // these ought to have been # encoded
-                return Err(Err::Error(error_position!(input,ErrorKind::Custom(ErrorCodes::ByteValueOughtToHaveBeenHexEncoded as u32))));
+                return Err(Err::Error(error_position!(
+                    input,
+                    ErrorKind::Custom(ErrorCodes::ByteValueOughtToHaveBeenHexEncoded as u32)
+                )));
             }
         }
     }
@@ -518,7 +523,6 @@ named!(pub indirect_reference<&[u8],PdfObject>,
     )
 );
 
-
 // § 7.5.4 Cross-reference table
 
 #[inline]
@@ -527,7 +531,6 @@ fn number_from_digits(digits: &[u8]) -> u64 {
 }
 
 pub fn xref_table(input: &[u8]) -> IResult<&[u8], CrossReferenceTable> {
-
     // starts with xref
     // then 1 or more cross-ref subsections
     // no explicit closer, just on to the next thing which ain't this here.
@@ -539,15 +542,20 @@ pub fn xref_table(input: &[u8]) -> IResult<&[u8], CrossReferenceTable> {
             let mut linput = rest;
             let mut first: bool = true;
 
-            'outer:
-            loop {
-                match re_bytes_capture!(linput, r"^(0|[123456789]\d*) ([123456789]\d*)(\r\n|\r|\n)") {
+            'outer: loop {
+                match re_bytes_capture!(linput, r"^(0|[123456789]\d*) ([123456789]\d*)(\r\n|\r|\n)")
+                {
                     Ok((rest2, vec2)) => {
                         // unwrapping here feels safe given the matching
                         let start: u32 = number_from_digits(vec2[1]) as u32;
 
                         if first && start != 0 {
-                            return Err(Err::Error(error_position!(input,ErrorKind::Custom(ErrorCodes::FirstObjectNumberInXrefNotZero as u32))));
+                            return Err(Err::Error(error_position!(
+                                input,
+                                ErrorKind::Custom(
+                                    ErrorCodes::FirstObjectNumberInXrefNotZero as u32
+                                )
+                            )));
                         }
                         first = false;
 
@@ -555,54 +563,51 @@ pub fn xref_table(input: &[u8]) -> IResult<&[u8], CrossReferenceTable> {
                         linput = rest2;
 
                         for itr in 0..how_many {
-
-                            match re_bytes_capture!(linput, r"^(\d{10}) (\d{5}) ([nf])( \r| \n|\r\n)") {
+                            match re_bytes_capture!(
+                                linput,
+                                r"^(\d{10}) (\d{5}) ([nf])( \r| \n|\r\n)"
+                            ) {
                                 Ok((rest3, vec3)) => {
-
                                     let num0: u64 = number_from_digits(vec3[1]);
                                     let num1: u16 = number_from_digits(vec3[2]) as u16;
                                     let in_use: bool = vec3[3][0] == b'n';
 
                                     if in_use {
-                                        xrt.add_in_use(start+(itr as u32), num1, num0 as usize);
+                                        xrt.add_in_use(start + (itr as u32), num1, num0 as usize);
                                     } else {
-                                        xrt.add_free(start+(itr as u32), num1);
+                                        xrt.add_free(start + (itr as u32), num1);
                                         // we would do some inspecting of num0 here if the current
                                         // spec cared anymore: the old-style linked list and the
                                         // new style mean we kind of dont care anymore.
                                     }
 
                                     linput = rest3;
-                                },
+                                }
                                 Err(Err::Incomplete(whatever)) => {
                                     return Err(Err::Incomplete(whatever));
-                                },
+                                }
                                 Err(err) => {
                                     return Err(err);
                                 }
                             }
-
                         }
-
-                    },
+                    }
                     Err(Err::Incomplete(whatever)) => {
                         return Err(Err::Incomplete(whatever));
-                    },
+                    }
                     Err(err) => {
-                        if ! first {
+                        if !first {
                             return Ok((linput, xrt));
                         }
                         return Err(err);
                     }
                 }
             }
-        },
+        }
         Err(Err::Incomplete(whatever)) => {
             return Err(Err::Incomplete(whatever));
-        },
-        Err(err) => {
-            return Err(err)
         }
+        Err(err) => return Err(err),
     }
 }
 
@@ -612,37 +617,35 @@ pub fn xref_table(input: &[u8]) -> IResult<&[u8], CrossReferenceTable> {
 
 // get the trailer Dictionary and the offset of the xref we need to look for.
 
-pub fn file_trailer(input: &[u8]) -> IResult<&[u8], (PdfObject,usize)> {
-
+pub fn file_trailer(input: &[u8]) -> IResult<&[u8], (PdfObject, usize)> {
     // need to make these patterns stricter
     match re_bytes_find!(input, r"^\s*trailer\s*(\r\n|\r|\n)") {
-        Ok((rest, _trailer)) => {
-            match dictionary_object(rest) {
-                Ok((rest2, dictionary)) => {
-                    match re_bytes_capture!(rest2, r"^\s*startxref\s*(\r\n|\r|\n)([123456789]\d*)\s*(\r\n|\r|\n)%%EOF\s*") {
-                        Ok(( rest3, vec3 )) => {
-                            let startxref = number_from_digits(vec3[2]) as usize;
-                            return Ok((rest3, (dictionary, startxref)))
-                        },
-                        Err(Err::Incomplete(whatever)) => {
-                            return Err(Err::Incomplete(whatever));
-                        },
-                        Err(err) => {
-                            return Err(err);
-                        }
-                    }
-                },
+        Ok((rest, _trailer)) => match dictionary_object(rest) {
+            Ok((rest2, dictionary)) => match re_bytes_capture!(
+                rest2,
+                r"^\s*startxref\s*(\r\n|\r|\n)([123456789]\d*)\s*(\r\n|\r|\n)%%EOF\s*"
+            ) {
+                Ok((rest3, vec3)) => {
+                    let startxref = number_from_digits(vec3[2]) as usize;
+                    return Ok((rest3, (dictionary, startxref)));
+                }
                 Err(Err::Incomplete(whatever)) => {
                     return Err(Err::Incomplete(whatever));
-                },
+                }
                 Err(err) => {
                     return Err(err);
                 }
+            },
+            Err(Err::Incomplete(whatever)) => {
+                return Err(Err::Incomplete(whatever));
+            }
+            Err(err) => {
+                return Err(err);
             }
         },
         Err(Err::Incomplete(whatever)) => {
             return Err(Err::Incomplete(whatever));
-        },
+        }
         Err(err) => {
             return Err(err);
         }
@@ -655,20 +658,49 @@ mod tests {
 
     #[test]
     fn indirect_reference_test() {
-        assert_eq!((b" ".as_bytes(), PdfObject::IndirectReference { number: 95, generation: 1 }),
-                   indirect_reference(b"95 1 R ".as_bytes()).unwrap());
-        assert_eq!((b"\n".as_bytes(), PdfObject::IndirectReference { number: 95, generation: 100 }),
-                   indirect_reference(b"95 100 R\n".as_bytes()).unwrap());
-        assert_eq!((b"".as_bytes(), PdfObject::IndirectReference { number: 96, generation: 100 }),
-                   indirect_reference(b"96 100 R".as_bytes()).unwrap());
-        assert_eq!(Err(Err::Error(Context::Code(b"09 1 R".as_bytes(), nom::ErrorKind::RegexpFind))),
-                       indirect_reference(b"09 1 R".as_bytes()));
+        assert_eq!(
+            (
+                b" ".as_bytes(),
+                PdfObject::IndirectReference {
+                    number: 95,
+                    generation: 1
+                }
+            ),
+            indirect_reference(b"95 1 R ".as_bytes()).unwrap()
+        );
+        assert_eq!(
+            (
+                b"\n".as_bytes(),
+                PdfObject::IndirectReference {
+                    number: 95,
+                    generation: 100
+                }
+            ),
+            indirect_reference(b"95 100 R\n".as_bytes()).unwrap()
+        );
+        assert_eq!(
+            (
+                b"".as_bytes(),
+                PdfObject::IndirectReference {
+                    number: 96,
+                    generation: 100
+                }
+            ),
+            indirect_reference(b"96 100 R".as_bytes()).unwrap()
+        );
+        assert_eq!(
+            Err(Err::Error(Context::Code(
+                b"09 1 R".as_bytes(),
+                nom::ErrorKind::RegexpFind
+            ))),
+            indirect_reference(b"09 1 R".as_bytes())
+        );
     }
 
     #[test]
     fn null_test() {
         match null_object(b"null").unwrap() {
-            (_b, PdfObject::Null) => {},
+            (_b, PdfObject::Null) => {}
             _ => {
                 assert_eq!(3, 0);
             }
@@ -689,24 +721,57 @@ mod tests {
 
     #[test]
     fn boolean_test() {
-        assert_eq!((b" ".as_bytes(), PdfObject::Boolean(true)), boolean(b"true ").unwrap());
-        assert_eq!((b"".as_bytes(), PdfObject::Boolean(false)), boolean(b"false").unwrap());
+        assert_eq!(
+            (b" ".as_bytes(), PdfObject::Boolean(true)),
+            boolean(b"true ").unwrap()
+        );
+        assert_eq!(
+            (b"".as_bytes(), PdfObject::Boolean(false)),
+            boolean(b"false").unwrap()
+        );
     }
 
     #[test]
     fn magic_test() {
-        assert_eq!((b"".as_bytes(), PdfVersion::Known { ver: b"1.0".to_vec() }), pdf_magic(b"%PDF-1.0\r\n").unwrap());
-        assert_eq!(Err(Err::Error(Context::Code(&[98u8, 108u8, 97u8, 104u8][..],nom::ErrorKind::Tag ))),
-                   pdf_magic(b"blah"));
-        assert_eq!(Err(Err::Error(Context::Code(&b"3.0\r"[..] ,nom::ErrorKind::RegexpFind))),
-                   pdf_magic(b"%PDF-3.0\r"));
+        assert_eq!(
+            (
+                b"".as_bytes(),
+                PdfVersion::Known {
+                    ver: b"1.0".to_vec()
+                }
+            ),
+            pdf_magic(b"%PDF-1.0\r\n").unwrap()
+        );
+        assert_eq!(
+            Err(Err::Error(Context::Code(
+                &[98u8, 108u8, 97u8, 104u8][..],
+                nom::ErrorKind::Tag
+            ))),
+            pdf_magic(b"blah")
+        );
+        assert_eq!(
+            Err(Err::Error(Context::Code(
+                &b"3.0\r"[..],
+                nom::ErrorKind::RegexpFind
+            ))),
+            pdf_magic(b"%PDF-3.0\r")
+        );
     }
 
     #[test]
     fn linendings_by_macro_test() {
-        assert_eq!((b"dd".as_bytes(), b"\r".as_bytes()), pdf_line_ending_by_macro(b"\rdd".as_bytes()).unwrap());
-        assert_eq!((b"dd".as_bytes(), b"\r\n".as_bytes()), pdf_line_ending_by_macro(b"\r\ndd".as_bytes()).unwrap());
-        assert_eq!((b"dd".as_bytes(), b"\n".as_bytes()), pdf_line_ending_by_macro(b"\ndd".as_bytes()).unwrap());
+        assert_eq!(
+            (b"dd".as_bytes(), b"\r".as_bytes()),
+            pdf_line_ending_by_macro(b"\rdd".as_bytes()).unwrap()
+        );
+        assert_eq!(
+            (b"dd".as_bytes(), b"\r\n".as_bytes()),
+            pdf_line_ending_by_macro(b"\r\ndd".as_bytes()).unwrap()
+        );
+        assert_eq!(
+            (b"dd".as_bytes(), b"\n".as_bytes()),
+            pdf_line_ending_by_macro(b"\ndd".as_bytes()).unwrap()
+        );
     }
 
     #[test]
@@ -714,31 +779,61 @@ mod tests {
         match comment(b"%hiya\n").unwrap() {
             (_b, PdfObject::Comment(v)) => {
                 assert_eq!(v, "hiya".as_bytes());
-            },
-            _ => { assert_eq!(6, 0); }
+            }
+            _ => {
+                assert_eq!(6, 0);
+            }
         }
         match comment("%なななな\n".as_bytes()).unwrap() {
             (_b, PdfObject::Comment(v)) => {
                 assert_eq!(v, "なななな".as_bytes());
-            },
-            _ => { assert_eq!(6, 0); }
+            }
+            _ => {
+                assert_eq!(6, 0);
+            }
         }
     }
 
     #[test]
     fn header_test() {
-        assert_eq!(Ok((b" ".as_bytes(), PdfVersion::Known { ver: b"1.0".to_vec() })),
-                   pdf_header(b"%PDF-1.0\r ".as_bytes()));
-        assert_eq!(Ok((b"\n ".as_bytes(), PdfVersion::Known { ver: b"2.0".to_vec() })),
-                   pdf_header("%PDF-2.0\r%なななな\n ".as_bytes()));
+        assert_eq!(
+            Ok((
+                b" ".as_bytes(),
+                PdfVersion::Known {
+                    ver: b"1.0".to_vec()
+                }
+            )),
+            pdf_header(b"%PDF-1.0\r ".as_bytes())
+        );
+        assert_eq!(
+            Ok((
+                b"\n ".as_bytes(),
+                PdfVersion::Known {
+                    ver: b"2.0".to_vec()
+                }
+            )),
+            pdf_header("%PDF-2.0\r%なななな\n ".as_bytes())
+        );
     }
 
     #[test]
     fn integers_test() {
-        assert_eq!((b"".as_bytes(), PdfObject::Integer(123)), signed_integer(b"123").unwrap());
-        assert_eq!((b"".as_bytes(),PdfObject::Integer(-123)), signed_integer(b"-123").unwrap());
-        assert_eq!((b"".as_bytes(),PdfObject::Integer(0)), signed_integer(b"0").unwrap());
-        assert_eq!((b"".as_bytes(),PdfObject::Integer(0)), signed_integer(b"-0").unwrap()); // heh
+        assert_eq!(
+            (b"".as_bytes(), PdfObject::Integer(123)),
+            signed_integer(b"123").unwrap()
+        );
+        assert_eq!(
+            (b"".as_bytes(), PdfObject::Integer(-123)),
+            signed_integer(b"-123").unwrap()
+        );
+        assert_eq!(
+            (b"".as_bytes(), PdfObject::Integer(0)),
+            signed_integer(b"0").unwrap()
+        );
+        assert_eq!(
+            (b"".as_bytes(), PdfObject::Integer(0)),
+            signed_integer(b"-0").unwrap()
+        ); // heh
     }
     macro_rules! float_test {
         ($($name:ident: $value:expr,)*) => {
@@ -769,11 +864,13 @@ mod tests {
         f7: (b"0.0",0.0),
     }
 
-
     #[test]
     fn hexadecimal_string_test() {
         assert_eq!(
-            Err(Err::Error(Context::Code(&[45u8, 62u8][..],nom::ErrorKind::Tag ))),
+            Err(Err::Error(Context::Code(
+                &[45u8, 62u8][..],
+                nom::ErrorKind::Tag
+            ))),
             hexadecimal_string(b"<a->".as_bytes())
         );
     }
@@ -838,8 +935,6 @@ mod tests {
             )*
         }
     }
-
-
 
     lset! {
         lset_1: (
@@ -934,7 +1029,13 @@ mod tests {
         assert_eq!(0, recognize_some_ws(b"a ".as_bytes()).unwrap().1.len());
         assert_eq!(0, recognize_some_ws(b"".as_bytes()).unwrap().1.len());
         assert_eq!(2, recognize_some_ws(b" \t".as_bytes()).unwrap().1.len());
-        assert_eq!(9, recognize_some_ws(b" \t \r\n \n \r".as_bytes()).unwrap().1.len());
+        assert_eq!(
+            9,
+            recognize_some_ws(b" \t \r\n \n \r".as_bytes())
+                .unwrap()
+                .1
+                .len()
+        );
     }
 
     #[test]
@@ -945,8 +1046,8 @@ mod tests {
             Ok((_rest, xrt)) => {
                 assert_eq!(4, xrt.count_in_use());
                 assert_eq!(2, xrt.count_free());
-                assert_eq!(vec![1,2,4,5], xrt.in_use());
-                assert_eq!(vec![0,3], xrt.free());
+                assert_eq!(vec![1, 2, 4, 5], xrt.in_use());
+                assert_eq!(vec![0, 3], xrt.free());
                 assert_eq!(Some(65535), xrt.generation_of(0));
                 assert_eq!(Some(0), xrt.generation_of(1));
                 assert_eq!(Some(0), xrt.generation_of(2));
@@ -959,9 +1060,9 @@ mod tests {
                 assert_eq!(None, xrt.offset_of(3));
                 assert_eq!(Some(331), xrt.offset_of(4));
                 assert_eq!(Some(409), xrt.offset_of(5));
-            },
+            }
             _ => {
-                assert_eq!(151,0);
+                assert_eq!(151, 0);
             }
         }
 
@@ -970,7 +1071,7 @@ mod tests {
             Ok((_rest, xrt)) => {
                 assert_eq!(4, xrt.count_in_use());
                 assert_eq!(1, xrt.count_free());
-                assert_eq!(vec![3,23,24,30], xrt.in_use());
+                assert_eq!(vec![3, 23, 24, 30], xrt.in_use());
                 assert_eq!(vec![0], xrt.free());
                 assert_eq!(Some(65535), xrt.generation_of(0));
                 assert_eq!(Some(0), xrt.generation_of(3));
@@ -988,38 +1089,37 @@ mod tests {
                 assert_eq!(None, xrt.offset_of(1024));
                 assert_eq!(None, xrt.generation_of(252));
                 assert_eq!(None, xrt.generation_of(1024));
-            },
+            }
             _ => {
-                assert_eq!(152,0);
+                assert_eq!(152, 0);
             }
         }
-
     }
 
     #[test]
     fn test_basic_trailer() {
-
         let trailer = b"trailer\n<</Size 22/Root 2 0 R/Info 1 0 R/ID [<81b14aafa313db63dbd6f981e49f94f4><81b14aafa313db63dbd6f981e49f94f4>]>>\nstartxref\n18799\n%%EOF\n";
 
         match file_trailer(&trailer[..]) {
-
             Ok((_rest, (dict, offset))) => {
-
                 assert_eq!(18799 as usize, offset);
                 match dict {
                     PdfObject::Dictionary(nkm) => {
-                        assert_eq!(PdfObject::Integer(22), nkm.get(PdfObject::Name(b"Size"[..].to_owned())).unwrap().unwrap());
-                    },
+                        assert_eq!(
+                            PdfObject::Integer(22),
+                            nkm.get(PdfObject::Name(b"Size"[..].to_owned()))
+                                .unwrap()
+                                .unwrap()
+                        );
+                    }
                     _ => {
                         assert_eq!(200, 0);
                     }
                 }
-
-            },
-            _ => {
-                assert_eq!(201,0);
             }
-
+            _ => {
+                assert_eq!(201, 0);
+            }
         }
     }
 

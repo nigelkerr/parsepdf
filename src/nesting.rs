@@ -3,20 +3,19 @@ extern crate nom;
 use std::str;
 use std::str::FromStr;
 
-use nom::*;
 use nom::ErrorKind;
+use nom::*;
 
 use structs::ErrorCodes;
-use structs::PdfObject;
-use structs::NameKeyedMap;
 use structs::IndirectObject;
+use structs::NameKeyedMap;
+use structs::PdfObject;
 
 use simple::*;
 
 // array object § 7.3.6
 
-pub fn array_object(input: &[u8]) -> IResult<&[u8], PdfObject>
-{
+pub fn array_object(input: &[u8]) -> IResult<&[u8], PdfObject> {
     let mut result: Vec<PdfObject> = Vec::new();
 
     if input.len() == 0 {
@@ -47,10 +46,8 @@ pub fn array_object(input: &[u8]) -> IResult<&[u8], PdfObject>
     // we are working through after recognizing most objects.  should
     // we treat whitespace the way we treat the others?
 
-    'outer:
-        loop {
-        'inner:
-            while index < linput.len() {
+    'outer: loop {
+        'inner: while index < linput.len() {
             if !inside {
                 index += skip_whitespace(&linput[index..]);
 
@@ -61,7 +58,10 @@ pub fn array_object(input: &[u8]) -> IResult<&[u8], PdfObject>
                 } else {
                     // anything not whitespace and not [ isn't an array at this point,
                     // we ought to consume it some other way.
-                    return Err(Err::Error(error_position!(input,ErrorKind::Custom(ErrorCodes::ExpectedArrayStart as u32))));
+                    return Err(Err::Error(error_position!(
+                        input,
+                        ErrorKind::Custom(ErrorCodes::ExpectedArrayStart as u32)
+                    )));
                 }
             }
 
@@ -86,10 +86,10 @@ pub fn array_object(input: &[u8]) -> IResult<&[u8], PdfObject>
                         linput = rest;
                         index = 0;
                         continue 'outer;
-                    },
+                    }
                     Err(Err::Incomplete(whatever)) => {
                         return Err(Err::Incomplete(whatever));
-                    },
+                    }
                     _ => {
                         // i think we ignore these til we bail out
                         // of this recognizers function loop.  it will
@@ -99,16 +99,17 @@ pub fn array_object(input: &[u8]) -> IResult<&[u8], PdfObject>
             }
 
             // we reached here without recognizing anything!
-            return Err(Err::Error(error_position!(input,ErrorKind::Custom(ErrorCodes::NoValidArrayContents as u32))));
+            return Err(Err::Error(error_position!(
+                input,
+                ErrorKind::Custom(ErrorCodes::NoValidArrayContents as u32)
+            )));
         }
     }
 }
 
-
 // dictionary § 7.3.7
 
-pub fn dictionary_object(input: &[u8]) -> IResult<&[u8], PdfObject>
-{
+pub fn dictionary_object(input: &[u8]) -> IResult<&[u8], PdfObject> {
     let mut result: NameKeyedMap = NameKeyedMap::new();
 
     if input.len() == 0 {
@@ -122,11 +123,11 @@ pub fn dictionary_object(input: &[u8]) -> IResult<&[u8], PdfObject>
     let mut expect_name: bool = true; // this acts as a flip flop
 
     let mut current_key: PdfObject = PdfObject::Name(vec![]);
-    let mut name_functions: Vec<fn(&[u8]) -> IResult<&[u8], PdfObject> > = Vec::new();
+    let mut name_functions: Vec<fn(&[u8]) -> IResult<&[u8], PdfObject>> = Vec::new();
     name_functions.push(name_object);
     name_functions.push(comment);
 
-    let mut functions: Vec<fn(&[u8]) -> IResult<&[u8], PdfObject> > = Vec::new();
+    let mut functions: Vec<fn(&[u8]) -> IResult<&[u8], PdfObject>> = Vec::new();
     functions.push(comment);
     functions.push(indirect_reference);
     functions.push(signed_integer);
@@ -142,11 +143,8 @@ pub fn dictionary_object(input: &[u8]) -> IResult<&[u8], PdfObject>
     // move forward through input until we Complete a dictionary at this level,
     // or get an Error/Incomplete (which return)
 
-    'outer:
-        loop {
-        'inner:
-            while index < linput.len() {
-
+    'outer: loop {
+        'inner: while index < linput.len() {
             // consume optional whitespace preamble
             if !inside {
                 index += skip_whitespace(&linput[index..]);
@@ -159,14 +157,16 @@ pub fn dictionary_object(input: &[u8]) -> IResult<&[u8], PdfObject>
                 } else {
                     // anything not whitespace and not < isn't a dict at this point,
                     // we ought to consume it some other way.
-                    return Err(Err::Error(error_position!(input,ErrorKind::Custom(ErrorCodes::ExpectedDictionaryStart as u32))));
+                    return Err(Err::Error(error_position!(
+                        input,
+                        ErrorKind::Custom(ErrorCodes::ExpectedDictionaryStart as u32)
+                    )));
                 }
             }
 
             index += skip_whitespace(&linput[index..]);
 
             if linput[index] == b'>' && linput[index + 1] == b'>' {
-
                 // do we expect the next object to be a name?
                 // that is, have we consumed complete name-value pairs thus
                 // far and would be looking to start a new pair if we
@@ -175,7 +175,10 @@ pub fn dictionary_object(input: &[u8]) -> IResult<&[u8], PdfObject>
                     return Ok((&linput[index + 2..], PdfObject::Dictionary(result)));
                 } else {
                     // if we were expecting a value, we're error
-                    return Err(Err::Error(error_position!(input,ErrorKind::Custom(ErrorCodes::ExpectedDictionaryValue as u32))));
+                    return Err(Err::Error(error_position!(
+                        input,
+                        ErrorKind::Custom(ErrorCodes::ExpectedDictionaryValue as u32)
+                    )));
                 }
             }
 
@@ -187,10 +190,10 @@ pub fn dictionary_object(input: &[u8]) -> IResult<&[u8], PdfObject>
                                 PdfObject::Name(_) => {
                                     current_key = obj;
                                     expect_name = !expect_name;
-                                },
+                                }
                                 PdfObject::Comment(_) => {
                                     // skip these
-                                },
+                                }
                                 _ => {
                                     // how did this happen? FIXME
                                 }
@@ -198,10 +201,10 @@ pub fn dictionary_object(input: &[u8]) -> IResult<&[u8], PdfObject>
                             linput = rest;
                             index = 0;
                             continue 'outer;
-                        },
+                        }
                         Err(Err::Incomplete(whatever)) => {
                             return Err(Err::Incomplete(whatever));
-                        },
+                        }
                         _ => {
                             // ulp FIXME?
                         }
@@ -214,7 +217,7 @@ pub fn dictionary_object(input: &[u8]) -> IResult<&[u8], PdfObject>
                             match obj {
                                 PdfObject::Comment(_) => {
                                     // skip these
-                                },
+                                }
                                 _ => {
                                     let _ = result.insert(current_key.clone(), obj);
                                     expect_name = !expect_name;
@@ -223,10 +226,10 @@ pub fn dictionary_object(input: &[u8]) -> IResult<&[u8], PdfObject>
                             linput = rest;
                             index = 0;
                             continue 'outer;
-                        },
+                        }
                         Err(Err::Incomplete(whatever)) => {
                             return Err(Err::Incomplete(whatever));
-                        },
+                        }
                         _ => {
                             // ulp FIXME?
                         }
@@ -234,19 +237,20 @@ pub fn dictionary_object(input: &[u8]) -> IResult<&[u8], PdfObject>
                 }
             }
 
-            return Err(Err::Error(error_position!(input,ErrorKind::Custom(ErrorCodes::NoValidDictionaryContents as u32))));
+            return Err(Err::Error(error_position!(
+                input,
+                ErrorKind::Custom(ErrorCodes::NoValidDictionaryContents as u32)
+            )));
         }
     }
 }
-
 
 // not quite the normal api, since we have an alleged /Length by which to
 // measure the stream.
 
 // but /Length can have an object reference, so ugh
 
-fn recognize_stream( input: &[u8], len: usize ) -> IResult<&[u8], Vec<u8> >
-{
+fn recognize_stream(input: &[u8], len: usize) -> IResult<&[u8], Vec<u8>> {
     let mut index = 0;
 
     // rules about which ws?
@@ -255,127 +259,129 @@ fn recognize_stream( input: &[u8], len: usize ) -> IResult<&[u8], Vec<u8> >
     // the special case the len == 0, which could be an actual 0, or because
     // of an indirect reference pointing to the length value.
     if len == 0 {
-
         // § 7.3.8.1 tells "There should be an end-of-line marker after the data and before endstream"
         // and examples abound where this isnt the case in real PDFs.
         // need to be careful with these streams: trim to correct length in
         // a second pass ?
-        match delimited!(&input[index..],
+        match delimited!(
+            &input[index..],
             re_bytes_find!("^stream(\r\n|\n)"),
             take_until!("endstream"),
             tag!("endstream")
         ) {
             Ok((rest, stream_bytes)) => {
                 return Ok((rest, stream_bytes[..].to_owned()));
-            },
+            }
             Err(Err::Incomplete(whatever)) => {
                 return Err(Err::Incomplete(whatever));
-            },
+            }
             Err(err) => {
                 return Err(err);
             }
         }
     }
 
-
-    match re_bytes_find!(&input[index..], r"^stream(\r\n|\n)") { // just these two line ending options
-        Ok((rest, _stream)) => {
-            match take!(rest, len) {
-                Ok((rest2, bytes_of_stream)) => {
-                    match re_bytes_find!(rest2, r"^(\r\n|\r|\n)?endstream") {
-                        Ok((rest3, _endstream)) => {
-                            return Ok((rest3, bytes_of_stream[..].to_owned() ));
-                        },
-                        Err(Err::Incomplete(whatever)) => {
-                            return Err(Err::Incomplete(whatever));
-                        },
-                        Err(err) => {
-                            return Err(err);
-                        }
-                    }
-                },
+    match re_bytes_find!(&input[index..], r"^stream(\r\n|\n)") {
+        // just these two line ending options
+        Ok((rest, _stream)) => match take!(rest, len) {
+            Ok((rest2, bytes_of_stream)) => match re_bytes_find!(rest2, r"^(\r\n|\r|\n)?endstream")
+            {
+                Ok((rest3, _endstream)) => {
+                    return Ok((rest3, bytes_of_stream[..].to_owned()));
+                }
                 Err(Err::Incomplete(whatever)) => {
                     return Err(Err::Incomplete(whatever));
-                },
+                }
                 Err(err) => {
                     return Err(err);
                 }
+            },
+            Err(Err::Incomplete(whatever)) => {
+                return Err(Err::Incomplete(whatever));
+            }
+            Err(err) => {
+                return Err(err);
             }
         },
         Err(Err::Incomplete(whatever)) => {
             return Err(Err::Incomplete(whatever));
-        },
+        }
         Err(err) => {
             return Err(err);
         }
     }
 }
 
-
-
 // Stream objects § 7.3.8
 // these are a Dictionary that must have a /Length value, direct or indirect,
 // and the stream..endstream after it.
 // this could be an xref stream, but we'll need somehow to check for /Type...
 
-pub fn stream_object(input: &[u8]) -> IResult<&[u8], PdfObject>
-{
+pub fn stream_object(input: &[u8]) -> IResult<&[u8], PdfObject> {
     match dictionary_object(input) {
-        Ok((rest, PdfObject::Dictionary(n))) => {
-            match n.get( PdfObject::Name( b"Length"[..].to_owned() )) {
-                Ok(Some(PdfObject::Integer( x ))) => {
-                    if x >= 0 {
-
-                        match recognize_stream(rest, x as usize) {
-                            Ok((rest2, v)) => {
-                                return Ok((rest2, PdfObject::Stream(n, v)));
-                            },
-                            Err(Err::Incomplete(whatever)) => {
-                                return Err(Err::Incomplete(whatever));
-                            },
-                            Err(err) => {
-                                return Err(err);
-                            }
-                        }
-
-                    } else {
-                        return Err(Err::Error(error_position!(input,ErrorKind::Custom(ErrorCodes::NegativeLengthInStreamDictionary as u32))));
-                    }
-                },
-                Ok(Some(PdfObject::IndirectReference { number: _n, generation: _g })) => {
-
-                    match recognize_stream(rest, 0 as usize) {
+        Ok((rest, PdfObject::Dictionary(n))) => match n.get(PdfObject::Name(
+            b"Length"[..].to_owned(),
+        )) {
+            Ok(Some(PdfObject::Integer(x))) => {
+                if x >= 0 {
+                    match recognize_stream(rest, x as usize) {
                         Ok((rest2, v)) => {
                             return Ok((rest2, PdfObject::Stream(n, v)));
-                        },
+                        }
                         Err(Err::Incomplete(whatever)) => {
                             return Err(Err::Incomplete(whatever));
-                        },
+                        }
                         Err(err) => {
                             return Err(err);
                         }
                     }
-                },
-                Ok(Some(_p)) => {
-                    return Err(Err::Error(error_position!(input,ErrorKind::Custom(ErrorCodes::NonIntegerLengthInStreamDictionary as u32))));
-                },
-                Ok(None) => {
-                    return Ok((rest, PdfObject::Dictionary(n)));
-                },
-                Err(_err) => {
-                    return Err(Err::Error(error_position!(input,ErrorKind::Custom(ErrorCodes::SomethingHorribleAboutStreamDictionary as u32))));
+                } else {
+                    return Err(Err::Error(error_position!(
+                        input,
+                        ErrorKind::Custom(ErrorCodes::NegativeLengthInStreamDictionary as u32)
+                    )));
                 }
+            }
+            Ok(Some(PdfObject::IndirectReference {
+                number: _n,
+                generation: _g,
+            })) => match recognize_stream(rest, 0 as usize) {
+                Ok((rest2, v)) => {
+                    return Ok((rest2, PdfObject::Stream(n, v)));
+                }
+                Err(Err::Incomplete(whatever)) => {
+                    return Err(Err::Incomplete(whatever));
+                }
+                Err(err) => {
+                    return Err(err);
+                }
+            },
+            Ok(Some(_p)) => {
+                return Err(Err::Error(error_position!(
+                    input,
+                    ErrorKind::Custom(ErrorCodes::NonIntegerLengthInStreamDictionary as u32)
+                )));
+            }
+            Ok(None) => {
+                return Ok((rest, PdfObject::Dictionary(n)));
+            }
+            Err(_err) => {
+                return Err(Err::Error(error_position!(
+                    input,
+                    ErrorKind::Custom(ErrorCodes::SomethingHorribleAboutStreamDictionary as u32)
+                )));
             }
         },
         Ok((_rest, _wut)) => {
-            return Err(Err::Error(error_position!(input,ErrorKind::Custom(ErrorCodes::CalledDictionaryAndGotSomethingElse as u32))));
-        },
+            return Err(Err::Error(error_position!(
+                input,
+                ErrorKind::Custom(ErrorCodes::CalledDictionaryAndGotSomethingElse as u32)
+            )));
+        }
         Err(Err::Incomplete(whatever)) => {
             return Err(Err::Incomplete(whatever));
-        },
-        Err(err) => {
-            Err(err)
         }
+        Err(err) => Err(err),
     }
 }
 
@@ -413,7 +419,6 @@ named!(pub indirect_object<&[u8],IndirectObject>,
         )
     )
 );
-
 
 #[cfg(test)]
 mod tests {
@@ -642,18 +647,22 @@ mod tests {
     }
 
     #[test]
-    fn test_recognized_dict_object_errors () {
-
+    fn test_recognized_dict_object_errors() {
         assert_eq!(
-            Err(Err::Error(error_position!(b"<</yo%yo\n >>".as_bytes(),ErrorKind::Custom(ErrorCodes::ExpectedDictionaryValue as u32)))),
+            Err(Err::Error(error_position!(
+                b"<</yo%yo\n >>".as_bytes(),
+                ErrorKind::Custom(ErrorCodes::ExpectedDictionaryValue as u32)
+            ))),
             dictionary_object(b"<</yo%yo\n >>".as_bytes())
         );
         assert_eq!(
-            Err(Err::Error(error_position!(b"<</yo>>".as_bytes(),ErrorKind::Custom(ErrorCodes::ExpectedDictionaryValue as u32)))),
+            Err(Err::Error(error_position!(
+                b"<</yo>>".as_bytes(),
+                ErrorKind::Custom(ErrorCodes::ExpectedDictionaryValue as u32)
+            ))),
             dictionary_object(b"<</yo>>".as_bytes())
         );
     }
-
 
     #[test]
     fn test_recognize_stream() {
@@ -682,9 +691,7 @@ mod tests {
             recognize_stream(b" stream\n__--__--__--__--", 16),
             Err(Err::Error(Context::Code(&b""[..], ErrorKind::RegexpFind)))
         );
-
     }
-
 
     macro_rules! recognized_stream_object_test {
         ($($name:ident: $value:expr,)*) => {
@@ -750,9 +757,14 @@ mod tests {
     #[test]
     fn test_indirect_object() {
         assert_eq!(
-            IndirectObject{ obj: PdfObject::String( b"xyzzy"[..].to_owned()), number: 1 as u32, generation: 0 as u16 },
-            indirect_object(b"1 0 obj\n(xyzzy)endobj".as_bytes()).unwrap().1
+            IndirectObject {
+                obj: PdfObject::String(b"xyzzy"[..].to_owned()),
+                number: 1 as u32,
+                generation: 0 as u16
+            },
+            indirect_object(b"1 0 obj\n(xyzzy)endobj".as_bytes())
+                .unwrap()
+                .1
         );
     }
 }
-

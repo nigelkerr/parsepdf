@@ -1,21 +1,25 @@
-extern crate regex;
 extern crate nom;
 extern crate parsepdf;
+extern crate regex;
 
 use nom::*;
 
+use regex::bytes::Regex;
 use std::env;
 use std::fs::File;
+use std::io;
+use std::io::Read;
 use std::io::Seek;
 use std::io::SeekFrom;
-use std::io::Read;
-use std::io;
-use regex::bytes::Regex;
 
 use parsepdf::*;
 
 /// caller expected to get the file state and numbers right!
-fn get_byte_array_from_file(file: &mut File, start: usize, length: usize) -> Result<Vec<u8>, io::Error> {
+fn get_byte_array_from_file(
+    file: &mut File,
+    start: usize,
+    length: usize,
+) -> Result<Vec<u8>, io::Error> {
     let _seek_result = file.seek(SeekFrom::Start(start as u64))?;
     let mut retval = vec![0u8; length as usize];
     let _read_result = file.read_exact(&mut retval[..])?;
@@ -27,7 +31,7 @@ fn main() {
 
     for possible_file in args {
         match process_file(possible_file.clone()) {
-            Ok(()) => {},
+            Ok(()) => {}
             Err(e) => {
                 println!("reading {:?} got error {:?}", possible_file, e);
             }
@@ -48,39 +52,45 @@ fn process_file(possible_file: String) -> Result<(), PdfError> {
         println!("xref table: {}", xref_table);
 
         for object_number in xref_table.in_use() {
-            let obj_bytes =
-                get_byte_array_from_file(&mut file,
-                                         xref_table.offset_of(object_number).unwrap(),
-                                         xref_table.max_length_of(object_number).unwrap())?;
+            let obj_bytes = get_byte_array_from_file(
+                &mut file,
+                xref_table.offset_of(object_number).unwrap(),
+                xref_table.max_length_of(object_number).unwrap(),
+            )?;
             let ind_obj = indirect_object(&obj_bytes);
             println!("ind obj: {:?}", ind_obj);
         }
 
         Ok(())
-
     } else {
-        Err(PdfError { desc: "argument is not a file".to_string(), underlying: None })
+        Err(PdfError {
+            desc: "argument is not a file".to_string(),
+            underlying: None,
+        })
     }
 }
 
-fn get_trailer_and_xref(file: &mut File, file_len: u64) -> Result<(PdfObject, CrossReferenceTable, usize), PdfError> {
+fn get_trailer_and_xref(
+    file: &mut File,
+    file_len: u64,
+) -> Result<(PdfObject, CrossReferenceTable, usize), PdfError> {
     let last_kaye = get_byte_array_from_file(file, (file_len - 1024) as usize, 1024 as usize)?;
     let (dict, startxref) = parse_trailer(&last_kaye)?;
-    let xref_bytes = get_byte_array_from_file(file,
-                                              startxref,
-                                              file_len as usize - startxref)?;
+    let xref_bytes = get_byte_array_from_file(file, startxref, file_len as usize - startxref)?;
     match xref_table(&xref_bytes) {
         Ok((_rest, mut crt)) => {
             // assert something about _rest ?
             crt.pdf_length(file_len as usize);
             Ok((dict, crt, startxref))
         }
-        Err(Err::Incomplete(_whatever)) => {
-            Err(PdfError { desc: "not enough bytes for xref_table?".to_string(), underlying: None })
-        }
-        Err(_err) => {
-            Err(PdfError { desc: "Error(err) from nom".to_string(), underlying: None })
-        }
+        Err(Err::Incomplete(_whatever)) => Err(PdfError {
+            desc: "not enough bytes for xref_table?".to_string(),
+            underlying: None,
+        }),
+        Err(_err) => Err(PdfError {
+            desc: "Error(err) from nom".to_string(),
+            underlying: None,
+        }),
     }
 }
 
@@ -94,18 +104,22 @@ fn parse_trailer(last_kaye: &Vec<u8>) -> Result<(PdfObject, usize), PdfError> {
         trailer_offset = Some(mat.start());
     }
     match trailer_offset {
-        Some(n) => {
-            match file_trailer(&last_kaye[(n as usize)..]) {
-                Ok((_rest, (dict, startxref))) => {
-                    return Ok((dict, startxref));
-                }
-                _ => {
-                    return Err(PdfError { desc: "Something wrong with file trailer".to_string(), underlying: None });
-                }
+        Some(n) => match file_trailer(&last_kaye[(n as usize)..]) {
+            Ok((_rest, (dict, startxref))) => {
+                return Ok((dict, startxref));
             }
-        }
+            _ => {
+                return Err(PdfError {
+                    desc: "Something wrong with file trailer".to_string(),
+                    underlying: None,
+                });
+            }
+        },
         None => {
-            return Err(PdfError { desc: "Trailer not recognized in the last 1024 bytes of the file.".to_string(), underlying: None });
+            return Err(PdfError {
+                desc: "Trailer not recognized in the last 1024 bytes of the file.".to_string(),
+                underlying: None,
+            });
         }
     }
 }

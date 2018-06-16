@@ -1,11 +1,11 @@
 use std;
-use std::fmt;
-use std::collections::HashMap;
 use std::collections::BTreeMap;
 use std::collections::BTreeSet;
-use std::collections::Bound::Unbounded;
 use std::collections::Bound::Excluded;
+use std::collections::Bound::Unbounded;
+use std::collections::HashMap;
 use std::error::Error;
+use std::fmt;
 use std::io;
 use std::str;
 
@@ -35,21 +35,21 @@ pub enum ErrorCodes {
 #[derive(Debug, PartialEq, Eq)]
 pub enum PdfVersion {
     Known { ver: Vec<u8> },
-    Unknown
+    Unknown,
 }
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum PdfObject {
     Null,
-    Boolean ( bool ),
-    Integer (i64 ),
-    Float (f64 ),
-    Comment ( Vec<u8> ),  // perhaps get rid of Comment and make it consumable like ws
-    String ( Vec<u8> ), // i am not convinced that the in-file representation form is significant (hex vs literal)
-    Name( Vec<u8> ),
-    Array( Vec<PdfObject> ),
-    Dictionary( NameKeyedMap ),
-    Stream( NameKeyedMap, Vec<u8> ),
+    Boolean(bool),
+    Integer(i64),
+    Float(f64),
+    Comment(Vec<u8>), // perhaps get rid of Comment and make it consumable like ws
+    String(Vec<u8>), // i am not convinced that the in-file representation form is significant (hex vs literal)
+    Name(Vec<u8>),
+    Array(Vec<PdfObject>),
+    Dictionary(NameKeyedMap),
+    Stream(NameKeyedMap, Vec<u8>),
     IndirectReference { number: u32, generation: u16 },
 }
 
@@ -57,37 +57,30 @@ pub enum PdfObject {
 pub struct IndirectObject {
     pub obj: PdfObject,
     pub number: u32,
-    pub generation: u16
+    pub generation: u16,
 }
 
 impl fmt::Display for PdfObject {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
-
-            PdfObject::Null => {
-                write!(f, "PdfObject::Null")
-            },
-            PdfObject::Boolean(ref v) => {
-                write!(f, "PdfObject::Boolean({})", v)
-            },
-            PdfObject::Integer(ref v) => {
-                write!(f, "PdfObject::Integer({})", v)
-            },
-            PdfObject::Float(ref v) => {
-                write!(f, "PdfObject::Float({})", v)
-            },
-            PdfObject::Comment(ref v) => {
-                write!(f, "PdfObject::Comment({:?})", &*v)
-            },
+            PdfObject::Null => write!(f, "PdfObject::Null"),
+            PdfObject::Boolean(ref v) => write!(f, "PdfObject::Boolean({})", v),
+            PdfObject::Integer(ref v) => write!(f, "PdfObject::Integer({})", v),
+            PdfObject::Float(ref v) => write!(f, "PdfObject::Float({})", v),
+            PdfObject::Comment(ref v) => write!(f, "PdfObject::Comment({:?})", &*v),
             PdfObject::String(ref v) => {
                 // if we knew the encoding, we could use it, but alas
                 write!(f, "PdfObject::String({:?})", &*v)
-            },
+            }
             PdfObject::Name(ref v) => {
                 // here we are directed to use utf-8 (end of § 7.3.5 and
                 // Note 4 thereof)
-                write!(f, "PdfObject::Name(/{})", str::from_utf8(&*v).unwrap_or("not-utf-8"))
-            },
+                write!(
+                    f,
+                    "PdfObject::Name(/{})",
+                    str::from_utf8(&*v).unwrap_or("not-utf-8")
+                )
+            }
             PdfObject::Array(ref v) => {
                 write!(f, "PdfObject::Array[\n")?;
                 for obj in v {
@@ -96,7 +89,7 @@ impl fmt::Display for PdfObject {
                     write!(f, "\n")?;
                 }
                 write!(f, "]")
-            },
+            }
             PdfObject::Dictionary(ref nkm) => {
                 write!(f, "PdfObject::Dictionary<<\n")?;
                 for name in nkm.names() {
@@ -104,16 +97,15 @@ impl fmt::Display for PdfObject {
                     name.fmt(f)?;
                     write!(f, "\n\t\t")?;
                     nkm.get(name).unwrap().unwrap().fmt(f)?;
-                    write!(f,"\n")?;
+                    write!(f, "\n")?;
                 }
                 write!(f, ">>")
-            },
-            PdfObject::Stream(ref _nkm, ref _strm) => {
-                write!(f, "a stream!")
-            },
-            PdfObject::IndirectReference{ number: n, generation: g } => {
-                write!(f, "PdfObject::IndirectReference({} {} R)", n, g)
             }
+            PdfObject::Stream(ref _nkm, ref _strm) => write!(f, "a stream!"),
+            PdfObject::IndirectReference {
+                number: n,
+                generation: g,
+            } => write!(f, "PdfObject::IndirectReference({} {} R)", n, g),
         }
     }
 }
@@ -121,7 +113,7 @@ impl fmt::Display for PdfObject {
 #[derive(Debug)]
 pub struct PdfError {
     pub desc: String,
-    pub underlying: Option<Box<Error>>
+    pub underlying: Option<Box<Error>>,
 }
 
 impl fmt::Display for PdfError {
@@ -140,7 +132,10 @@ impl std::error::Error for PdfError {
 
 impl From<io::Error> for PdfError {
     fn from(o: io::Error) -> Self {
-        PdfError {desc: "from a std::io::Error".to_string(), underlying:Some(Box::new(o))}
+        PdfError {
+            desc: "from a std::io::Error".to_string(),
+            underlying: Some(Box::new(o)),
+        }
     }
 }
 
@@ -149,31 +144,28 @@ impl From<io::Error> for PdfError {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct NameKeyedMap {
-    map: HashMap<Vec<u8>,PdfObject>
+    map: HashMap<Vec<u8>, PdfObject>,
 }
 
 impl NameKeyedMap {
     pub fn new() -> NameKeyedMap {
         NameKeyedMap {
-            map: HashMap::new()
+            map: HashMap::new(),
         }
     }
 
     pub fn insert(&mut self, k: PdfObject, v: PdfObject) -> Result<Option<PdfObject>, PdfError> {
         match k {
-            PdfObject::Name(x) => {
-                match self.map.insert(x, v) {
-                    Some(z) => {
-                        Ok(Some(z))
-                    },
-                    None => {
-                        Ok(None)
-                    }
-                }
-            }
+            PdfObject::Name(x) => match self.map.insert(x, v) {
+                Some(z) => Ok(Some(z)),
+                None => Ok(None),
+            },
             _ => {
                 println!("args {:?} {:?}", k, v);
-                Err(PdfError { desc: "key wasnt a PdfObject::Name".to_string(), underlying: None })
+                Err(PdfError {
+                    desc: "key wasnt a PdfObject::Name".to_string(),
+                    underlying: None,
+                })
             }
         }
     }
@@ -182,44 +174,43 @@ impl NameKeyedMap {
         let mut map: NameKeyedMap = NameKeyedMap::new();
 
         if values.len() % 2 != 0 {
-            return Err(PdfError { desc: "need even number of items to of()".to_string(), underlying: None })
+            return Err(PdfError {
+                desc: "need even number of items to of()".to_string(),
+                underlying: None,
+            });
         }
 
         for window in values.chunks(2) {
             match map.insert(window[0].clone(), window[1].clone()) {
-                Ok(_) => {},
-                Err(x) => {
-                    return Err(x)
-                }
+                Ok(_) => {}
+                Err(x) => return Err(x),
             }
         }
 
         Ok(Some(map))
     }
 
-    pub fn get(&self, k: PdfObject) -> Result<Option<PdfObject>, PdfError>
-    {
+    pub fn get(&self, k: PdfObject) -> Result<Option<PdfObject>, PdfError> {
         match k {
-            PdfObject::Name(x) => {
-                match self.map.get(&x) {
-                    Some(ref p) => {
-                        Ok(Some((*p).clone()))
-                    },
-                    None => {
-                        Ok(None)
-                    }
-                }
+            PdfObject::Name(x) => match self.map.get(&x) {
+                Some(ref p) => Ok(Some((*p).clone())),
+                None => Ok(None),
             },
             _ => {
-
                 // we treat this as an error now: we could treat it as None-worthy...
-                Err(PdfError { desc: "key wasnt a PdfObject::Name".to_string(), underlying: None })
+                Err(PdfError {
+                    desc: "key wasnt a PdfObject::Name".to_string(),
+                    underlying: None,
+                })
             }
         }
     }
 
     pub fn names(&self) -> Vec<PdfObject> {
-        self.map.keys().map(|vecu8| PdfObject::Name(vecu8.clone())).collect()
+        self.map
+            .keys()
+            .map(|vecu8| PdfObject::Name(vecu8.clone()))
+            .collect()
     }
 }
 
@@ -233,7 +224,7 @@ pub struct CrossReferenceTable {
     object_generations: BTreeMap<u32, u16>,
     free_objects: BTreeSet<u32>,
     offsets_to_objects: BTreeMap<usize, u32>,
-    length: usize
+    length: usize,
 }
 
 impl CrossReferenceTable {
@@ -251,12 +242,12 @@ impl CrossReferenceTable {
         self.length = length;
     }
 
-    pub fn add_in_use(&mut self, number:u32, generation:u16, offset:usize) {
+    pub fn add_in_use(&mut self, number: u32, generation: u16, offset: usize) {
         self.object_generations.insert(number, generation);
         self.object_offsets.insert(number, offset);
         self.offsets_to_objects.insert(offset, number);
     }
-    pub fn add_free(&mut self, number:u32, generation: u16) {
+    pub fn add_free(&mut self, number: u32, generation: u16) {
         self.object_generations.insert(number, generation);
         self.free_objects.insert(number);
     }
@@ -277,22 +268,14 @@ impl CrossReferenceTable {
 
     pub fn generation_of(&self, number: u32) -> Option<u16> {
         match self.object_generations.get(&number) {
-            Some(ref x) => {
-                Some((*x).clone())
-            },
-            _ => {
-                None
-            }
+            Some(ref x) => Some((*x).clone()),
+            _ => None,
         }
     }
     pub fn offset_of(&self, number: u32) -> Option<usize> {
         match self.object_offsets.get(&number) {
-            Some(ref x) => {
-                Some((*x).clone())
-            },
-            _ => {
-                None
-            }
+            Some(ref x) => Some((*x).clone()),
+            _ => None,
         }
     }
 
@@ -308,7 +291,9 @@ impl CrossReferenceTable {
             let start_offset = self.object_offsets.get(&number).unwrap();
             let mut next_start_offset: usize = 0;
 
-            for (&key, &_value) in self.offsets_to_objects.range((Excluded(start_offset), Unbounded)) {
+            for (&key, &_value) in self.offsets_to_objects
+                .range((Excluded(start_offset), Unbounded))
+            {
                 next_start_offset = key;
                 break;
             }
@@ -321,7 +306,6 @@ impl CrossReferenceTable {
         } else {
             None
         }
-
     }
 }
 
@@ -329,15 +313,21 @@ impl fmt::Display for CrossReferenceTable {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "CrossReferenceTable[\n")?;
         for objnum in self.in_use() {
-            write!(f, "\t{}: offset {} gen {}\n",
-                   objnum,
-                   self.offset_of(objnum).unwrap_or(<usize>::max_value()),
-                   self.generation_of(objnum).unwrap_or(<u16>::max_value()))?
+            write!(
+                f,
+                "\t{}: offset {} gen {}\n",
+                objnum,
+                self.offset_of(objnum).unwrap_or(<usize>::max_value()),
+                self.generation_of(objnum).unwrap_or(<u16>::max_value())
+            )?
         }
         for freenum in self.free() {
-            write!(f, "\t{}: free gen {}\n",
-                   freenum,
-                   self.generation_of(freenum).unwrap_or(<u16>::max_value()))?
+            write!(
+                f,
+                "\t{}: free gen {}\n",
+                freenum,
+                self.generation_of(freenum).unwrap_or(<u16>::max_value())
+            )?
         }
         write!(f, "]\n")
     }
@@ -349,71 +339,61 @@ mod tests {
 
     #[test]
     fn namekeyedmap_test() {
-        match NameKeyedMap::new().get( PdfObject::Name(b"A"[..].to_owned()) ) {
-            Ok(None) => {
-
-            },
+        match NameKeyedMap::new().get(PdfObject::Name(b"A"[..].to_owned())) {
+            Ok(None) => {}
             _ => {
                 assert_eq!(111, 0);
             }
         }
 
-        match NameKeyedMap::of(  vec![PdfObject::Name(b"A"[..].to_owned()) ,  PdfObject::Name(b"B"[..].to_owned()) ] ) {
-            Ok(Some(n)) => {
-
-                match n.get(PdfObject::Name(b"A"[..].to_owned())) {
-
-                    Ok(Some(x)) => {
-                        assert_eq!(x, PdfObject::Name(b"B"[..].to_owned()));
-                    },
-                    _ => {
-                        assert_eq!(114,0);
-                    }
+        match NameKeyedMap::of(vec![
+            PdfObject::Name(b"A"[..].to_owned()),
+            PdfObject::Name(b"B"[..].to_owned()),
+        ]) {
+            Ok(Some(n)) => match n.get(PdfObject::Name(b"A"[..].to_owned())) {
+                Ok(Some(x)) => {
+                    assert_eq!(x, PdfObject::Name(b"B"[..].to_owned()));
                 }
-
+                _ => {
+                    assert_eq!(114, 0);
+                }
             },
             _ => {
                 assert_eq!(112, 0);
             }
         }
 
-        match NameKeyedMap::of(  vec![PdfObject::Name(b"A"[..].to_owned()) ,
-                                      PdfObject::Name(b"B"[..].to_owned()) ,
-                                      PdfObject::Name(b"A"[..].to_owned()) ,
-                                      PdfObject::Name(b"C"[..].to_owned()) ] ) {
+        match NameKeyedMap::of(vec![
+            PdfObject::Name(b"A"[..].to_owned()),
+            PdfObject::Name(b"B"[..].to_owned()),
+            PdfObject::Name(b"A"[..].to_owned()),
+            PdfObject::Name(b"C"[..].to_owned()),
+        ]) {
             Ok(Some(n)) => {
-
                 match n.get(PdfObject::Name(b"A"[..].to_owned())) {
-
                     Ok(Some(x)) => {
                         assert_eq!(x, PdfObject::Name(b"C"[..].to_owned()));
-                    },
+                    }
                     _ => {
-                        assert_eq!(115,0);
+                        assert_eq!(115, 0);
                     }
                 }
 
                 assert_eq!(1, n.names().len());
-
-            },
+            }
             _ => {
                 assert_eq!(112, 0);
             }
         }
 
-
-        match NameKeyedMap::of(  vec![PdfObject::Name(b"A"[..].to_owned())  ] ) {
+        match NameKeyedMap::of(vec![PdfObject::Name(b"A"[..].to_owned())]) {
             Ok(Some(_n)) => {
                 assert_eq!(117, 0);
-            },
-            Err(_x) => {
-
-            },
+            }
+            Err(_x) => {}
             _ => {
                 assert_eq!(118, 0);
             }
         }
-
-
     }
 }

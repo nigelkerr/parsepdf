@@ -7,12 +7,11 @@ extern crate regex;
 
 // parse a pdf file, per ISO 32000-2_2017(en)
 
-mod structs;
-mod simple;
-mod nesting;
 mod filters;
+mod nesting;
+mod simple;
+mod structs;
 
-pub use structs::*;
-pub use simple::*;
 pub use nesting::*;
-
+pub use simple::*;
+pub use structs::*;
