@@ -40,28 +40,48 @@ fn main() {
 }
 
 fn process_file(possible_file: String) -> Result<(), PdfError> {
+    println!("processing alleged file '{:?}'", possible_file);
     let metadata = std::fs::metadata(possible_file.clone())?;
 
     if metadata.is_file() {
         let file_len = metadata.len();
         let mut file = File::open(possible_file).unwrap();
 
-        let (trailer_dict, xref_table, startxref) = get_trailer_and_xref(&mut file, file_len)?;
-        println!("last xref starts at {}", startxref);
-        println!("trailer dictionary: {}", &trailer_dict);
-        println!("xref table: {}", xref_table);
+        match get_trailer_and_xref(&mut file, file_len) {
+            Ok((trailer_dict, xref_table, startxref)) => {
+                println!("last xref starts at {}", startxref);
+                println!("trailer dictionary: {}", &trailer_dict);
+                println!("xref table: {}", xref_table);
 
-        for object_number in xref_table.in_use() {
-            let obj_bytes = get_byte_array_from_file(
-                &mut file,
-                xref_table.offset_of(object_number).unwrap(),
-                xref_table.max_length_of(object_number).unwrap(),
-            )?;
-            let ind_obj = indirect_object(&obj_bytes);
-            println!("ind obj: {:?}", ind_obj);
+                for object_number in xref_table.in_use() {
+                    println!("processing object number {:?}", object_number);
+                    let obj_bytes = get_byte_array_from_file(
+                        &mut file,
+                        xref_table.offset_of(object_number).unwrap(),
+                        xref_table.max_length_of(object_number).unwrap(),
+                    )?;
+                    match indirect_object(&obj_bytes) {
+                        Ok((_rest, ind_obj)) => {
+                            println!("ind obj: {:?}", ind_obj);
+                        },
+                        Err(Err::Error(Context::Code(slice, descriptor))) => {
+                            println!("error processing: {:?} on {:?}", descriptor, slice);
+                        },
+                        Err(some_error) => {
+                            println!("error processing: {:?}", some_error);
+                        },
+                    }
+                }
+
+                println!("completed.\n");
+                Ok(())
+            },
+            Err(err) => {
+                Err(err)
+            },
         }
 
-        Ok(())
+
     } else {
         Err(PdfError {
             desc: "argument is not a file".to_string(),
