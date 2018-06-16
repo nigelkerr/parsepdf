@@ -365,7 +365,7 @@ fn recognize_literal_string(input: &[u8]) -> IResult<&[u8], Vec<u8>> {
         }
     }
     // +1 because the last index we look at is the final ) itself
-    Ok((input.slice(index + 1..), result))
+    Ok((&input[index + 1..], result))
 }
 
 named!(pub literal_string<&[u8],PdfObject>,
@@ -497,7 +497,7 @@ pub fn recognize_name_object(input: &[u8]) -> IResult<&[u8], Vec<u8>> {
     // ... wut?  i guess we get here if the end of
     // current input is indistinguishable from
     // the end of a name possibly.
-    Ok((input.slice(input_length..), result))
+    Ok((&input[input_length..], result))
 }
 
 /// return the name itself expanded to un-escaped form
