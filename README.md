@@ -2,6 +2,18 @@
 
 Try to learn nom, rust, and the PDF 2.0 spec by parsing PDFs.
 
+## 2018-06-18
+
+Filters LZW, Flate, and RLE added, as well as the predictors for LZW and Flate.
+Going to leave the other filters (CCITT, JBIG2, JPX, DCT, Crypt) aside for the
+time being: Flate and predictors allows us to read XRef stream objects, thereby
+allowing us to read more files, so that's next.
+
+the act of fully processing a Stream object and its filters not quite completed,
+but hte filter and predictors are present to be assembled.  It may soon be time
+to figure out just what the goals are here, so that i can decide how to assemble
+the pieces.
+
 ## 2018-05-19
 
 start of filters merged here to master.  asciihex and ascii85 decoding functions and macros,
