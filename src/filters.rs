@@ -355,25 +355,6 @@ fn apply_png_predictor_function(
     Err(DecodingResponse::NotImplementedYet)
 }
 
-pub fn apply_predictor_function(
-    input: &Vec<u8>,
-    predictor: u8,
-    colors: u32,
-    bits_per_component: u32,
-    columns: u32,
-) -> Result<Vec<u8>, DecodingResponse> {
-    match predictor {
-        2 => apply_tiff_predictor_function(input, colors, bits_per_component, columns),
-        10 | 11 | 12 | 13 | 14 | 15 => {
-            apply_png_predictor_function(input, colors, bits_per_component, columns)
-        }
-        _ => {
-            let mut accum = Vec::new();
-            accum.extend(input);
-            Ok(accum)
-        }
-    }
-}
 
 #[cfg(test)]
 mod tests {
@@ -493,21 +474,55 @@ mod tests {
         // 2 colors, 8 bits, 3 columns
         let input: Vec<u8> = vec![0x80, 0x00, 0x01, 0x00, 0x03, 0x00];
         let output: Vec<u8> = vec![0x80, 0x00, 0x81, 0x00, 0x84, 0x00];
-        assert_eq!(Ok(output), apply_predictor_function(&input, 2, 2, 8, 3));
+        assert_eq!(Ok(output), apply_tiff_predictor_function(&input, 2, 8, 3));
 
         // 2 colors, 4 bits, 4 columns
         let input: Vec<u8> = vec![0x80, 0x00, 0xf0, 0x00];
         let output: Vec<u8> = vec![0x80, 0x80, 0x70, 0x70];
-        assert_eq!(Ok(output), apply_predictor_function(&input, 2, 2, 4, 4));
+        assert_eq!(Ok(output), apply_tiff_predictor_function(&input, 2, 4, 4));
 
         // 2 colors, 4 bits, 2 columns (and there by 2 rows...)
         let input: Vec<u8> = vec![0x80, 0x00, 0xf0, 0x00];
         let output: Vec<u8> = vec![0x80, 0x80, 0xf0, 0xf0];
-        assert_eq!(Ok(output), apply_predictor_function(&input, 2, 2, 4, 2));
+        assert_eq!(Ok(output), apply_tiff_predictor_function(&input, 2, 4, 2));
 
         // 2 colors, 7 bits, 3 columns
         let input: Vec<u8> = vec![0xfe, 0x00, 0x08, 0x00, 0x60, 0x00];
         let output: Vec<u8> = vec![0xfe, 0x00, 0x00, 0x00, 0x60, 0x00];
-        assert_eq!(Ok(output), apply_predictor_function(&input, 2, 2, 7, 3));
+        assert_eq!(Ok(output), apply_tiff_predictor_function(&input, 2, 7, 3));
+
+        // how do i test failure modes here?  what is a failure mode for
+        // these predictor functions?
+    }
+
+    #[test]
+    fn basic_png_predictor_test() {
+        // these data are /W [1 2 1]
+        let input_data = include_bytes!("../assets/flate_predictor12_4columns.bitstream").to_vec();
+        let output_text = String::from_utf8(include_bytes!("../assets/flate_predictor12_4columns.decoded_values").to_vec()).unwrap();
+        let output_array =
+            output_text.lines().map(|l| l.split_whitespace().map(|w| w.parse::<u32>().unwrap() ).collect::<Vec<u32>>() ).collect::<Vec<Vec<_>>>();
+
+        match apply_png_predictor_function(&input_data, 1, 8, 4) {
+            Ok(decoded) => {
+                let mut slice_decoded = decoded.as_slice();
+                for row in output_array.iter() {
+                    let (rest, x1) = be_u8(slice_decoded).unwrap();
+                    slice_decoded = rest;
+                    let (rest, x2) = be_u16(slice_decoded).unwrap();
+                    slice_decoded = rest;
+                    let (rest, x3) = be_u8(slice_decoded).unwrap();
+                    slice_decoded = rest;
+
+                    assert_eq!(x1 as u32, row[0]);
+                    assert_eq!(x2 as u32, row[1]);
+                    assert_eq!(x3 as u32, row[2]);
+                }
+            },
+            Err(err) => {
+                println!("got: {:?}", err);
+                assert_eq!(1,6);
+            },
+        }
     }
 }
