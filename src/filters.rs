@@ -2,7 +2,6 @@ extern crate inflate;
 extern crate lzw;
 extern crate nom;
 
-use nom::ErrorKind;
 use nom::*;
 
 // given a filter, possibly some parameters, and some bytes,
@@ -136,7 +135,7 @@ named!(pub bare_ascii85_sequence<&[u8],Vec<u8>>,
 
 pub fn decode_ascii85(input: &Vec<u8>) -> Result<Vec<u8>, DecodingResponse> {
     match bare_ascii85_sequence(&input[..]) {
-        Ok((remainder, v)) => Ok(v),
+        Ok((_remainder, v)) => Ok(v),
         Err(_) => Err(DecodingResponse::DecodeError),
     }
 }
@@ -183,7 +182,7 @@ pub fn decode_lzw(input: &Vec<u8>, early: bool) -> Result<Vec<u8>, DecodingRespo
 pub fn decode_flate(input: &Vec<u8>) -> Result<Vec<u8>, DecodingResponse> {
     match inflate::inflate_bytes_zlib(input.as_bytes()) {
         Ok(result) => Ok(result),
-        Err(s) => Err(DecodingResponse::DecodeError),
+        Err(_s) => Err(DecodingResponse::DecodeError),
     }
 }
 
@@ -252,7 +251,7 @@ pub fn decode_crypt(input: &Vec<u8>) -> Result<Vec<u8>, DecodingResponse> {
     refuse_to_decode()
 }
 
-fn apply_tiff_predictor_function(
+pub fn apply_tiff_predictor_function(
     input: &Vec<u8>,
     colors: u32,
     bits_per_component: u32,
@@ -260,7 +259,7 @@ fn apply_tiff_predictor_function(
 ) -> Result<Vec<u8>, DecodingResponse> {
     let slinput = input.as_slice();
     let mut result: Vec<u8> = Vec::new();
-    let bytes_per_row: usize = ((bits_per_component * colors * columns) as usize + 7) / 8;
+    let bytes_per_row: usize = ((bits_per_component * colors * columns) as usize + 7) >> 3;
     let rows: usize = input.len() / bytes_per_row as usize;
 
     for row in 0..rows {
@@ -268,7 +267,7 @@ fn apply_tiff_predictor_function(
         let mut current_row_unpacked: Vec<u32> = Vec::new();
         let mut bits: usize = 0;
         // copy accross samples of the first pixel
-        for _ in (0..colors) {
+        for _ in 0..colors {
             match take_bits!((rinput, bits), u32, bits_per_component as usize) {
                 Ok(((ninput, nbits), value)) => {
                     current_row_unpacked.push(value);
@@ -282,7 +281,7 @@ fn apply_tiff_predictor_function(
         }
 
         // deal with the rest of the pixels, referring to recently added
-        for col in (0..(columns - 1) * colors) {
+        for col in 0..((columns - 1) * colors) {
             match take_bits!((rinput, bits), u32, bits_per_component as usize) {
                 Ok(((ninput, nbits), value)) => {
                     let prev = current_row_unpacked[col as usize];
@@ -300,7 +299,7 @@ fn apply_tiff_predictor_function(
         // now pack current row unpacked into the result vec<u8>
 
         if bits_per_component % 8 == 0 {
-            let bytes_per_component = bits_per_component / 8;
+            let bytes_per_component = bits_per_component >> 3;
             for code in current_row_unpacked.iter() {
                 for i in (0..bytes_per_component).rev() {
                     result.push(((code >> (i * 8)) & 0x000000ff) as u8);
@@ -346,13 +345,97 @@ fn apply_tiff_predictor_function(
     Ok(result)
 }
 
-fn apply_png_predictor_function(
+fn paeth_prediction( a: u8, b: u8, c: u8 ) -> u8 {
+
+    let p: i16 = a as i16 + b as i16 - c as i16;
+    let pa: u16 = (p - a as i16).abs() as u16;
+    let pb: u16 = (p - b as i16).abs() as u16;
+    let pc: u16 = (p - c as i16).abs() as u16;
+
+    if pa <= pb && pa <= pc {
+        return a;
+    } else if pb <= pc {
+        return b;
+    }
+    return c;
+}
+
+pub fn apply_png_predictor_function(
     input: &Vec<u8>,
     colors: u32,
     bits_per_component: u32,
     columns: u32,
 ) -> Result<Vec<u8>, DecodingResponse> {
-    Err(DecodingResponse::NotImplementedYet)
+    let slinput = input.as_slice();
+    let mut result: Vec<u8> = Vec::new();
+    let bytes_per_row: usize = ((bits_per_component * colors * columns) as usize + 7) >> 3;
+    let bytes_per_pixel: usize = ((bits_per_component * colors) as usize + 7) >> 3;
+    let bytes_per_row_with_predictor: usize = bytes_per_row + 1;
+    let rows: usize = input.len() / (bytes_per_row_with_predictor) as usize;
+
+    // we need a previous row, and the current row.
+    // the initial previous row is 0's, not from the input.
+    // there is always a pixel's worth of 0's to the left of each row.
+    let mut prev: Vec<u8> = vec![0u8; bytes_per_row];
+    let mut next: Vec<u8> = vec![0u8; bytes_per_row];
+
+    for row in 0..rows {
+        let start = bytes_per_row_with_predictor * row;
+        let end = bytes_per_row_with_predictor * ( row + 1 );
+        let predictor = &slinput[start..(start+1)];
+        let mut rinput = &slinput[(start+1)..end];
+
+        match predictor.get(0) {
+            Some(1u8) => { // png sub
+                for i in bytes_per_pixel .. bytes_per_row {
+                    let rvalue = rinput[i];
+                    let left_rvalue = next[i - bytes_per_pixel];
+                    next[i] = rvalue.wrapping_add( left_rvalue );
+                }
+            },
+            Some(2u8) => { // png up
+                // we dont really need to worry about pix width here
+                // since it is all up all the time.
+                for i in 0..bytes_per_row {
+                    let rvalue = rinput[i];
+                    next[i] = rvalue.wrapping_add( prev[i]) ;
+                }
+            },
+            Some(3u8) => { // png avg
+                // the inline if expr might be slow, but it is clear to me on reading.
+                for i in 0..bytes_per_row {
+                    let up_value = prev[i];
+                    let left_rvalue = if i < bytes_per_pixel { 0 } else { next[i - bytes_per_pixel] };
+                    let rvalue = rinput[i];
+                    let interm = ((up_value as u16).wrapping_add(left_rvalue as u16) >> 1) as u8;
+                    next[i] = rvalue.wrapping_add(interm);
+                }
+            },
+            Some(4u8) => { // png paeth
+                for i in 0..bytes_per_row {
+
+                    let up_value = prev[i];
+                    let left_rvalue = if i < bytes_per_pixel { 0 } else { next[i - bytes_per_pixel] };
+                    let left_up_rvalue = if i < bytes_per_pixel { 0 } else { prev[i - bytes_per_pixel] };
+                    let rvalue = rinput[i];
+                    next[i] = rvalue.wrapping_add(paeth_prediction(left_rvalue, up_value, left_up_rvalue));
+                }
+            }
+            _ => {
+                println!("not implemented yet, so just copying");
+                for i in 0..bytes_per_row {
+                    let rvalue = rinput[i];
+                    next[i] = rvalue;
+                }
+            }
+        }
+        result.extend(next.clone());
+        prev = next;
+        next = vec![0u8; bytes_per_row];
+
+    }
+
+    Ok(result)
 }
 
 
@@ -487,6 +570,9 @@ mod tests {
         assert_eq!(Ok(output), apply_tiff_predictor_function(&input, 2, 4, 2));
 
         // 2 colors, 7 bits, 3 columns
+        // this one not strictly necessary (the spec only allows 1, 2, 4, 8, or 16 BitsPerComponent
+        // but this demonstrates nicely that we're doing the unpacking and modulo arithmetic correct.
+        // there probably needs to be a keyhole on the bits-per-component.
         let input: Vec<u8> = vec![0xfe, 0x00, 0x08, 0x00, 0x60, 0x00];
         let output: Vec<u8> = vec![0xfe, 0x00, 0x00, 0x00, 0x60, 0x00];
         assert_eq!(Ok(output), apply_tiff_predictor_function(&input, 2, 7, 3));
@@ -496,9 +582,10 @@ mod tests {
     }
 
     #[test]
-    fn basic_png_predictor_test() {
-        // these data are /W [1 2 1]
-        let input_data = include_bytes!("../assets/flate_predictor12_4columns.bitstream").to_vec();
+    fn basic_png_predictor_test_xrefstm() {
+        // these data given as  /DecodeParams <</Columns 4 /Predictor 12 >> /W [1 2 1]
+        let flate_data = include_bytes!("../assets/flate_predictor12_4columns.bitstream").to_vec();
+        let input_data = decode_flate(&flate_data).unwrap();
         let output_text = String::from_utf8(include_bytes!("../assets/flate_predictor12_4columns.decoded_values").to_vec()).unwrap();
         let output_array =
             output_text.lines().map(|l| l.split_whitespace().map(|w| w.parse::<u32>().unwrap() ).collect::<Vec<u32>>() ).collect::<Vec<Vec<_>>>();
@@ -525,4 +612,6 @@ mod tests {
             },
         }
     }
+
+    // am finding image examples with interesting /DecodeParams combinations thin on the ground for some reason.
 }
