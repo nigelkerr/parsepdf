@@ -14,17 +14,7 @@ use std::io::SeekFrom;
 
 use parsepdf::*;
 
-/// caller expected to get the file state and numbers right!
-fn get_byte_array_from_file(
-    file: &mut File,
-    start: usize,
-    length: usize,
-) -> Result<Vec<u8>, io::Error> {
-    let _seek_result = file.seek(SeekFrom::Start(start as u64))?;
-    let mut retval = vec![0u8; length as usize];
-    let _read_result = file.read_exact(&mut retval[..])?;
-    Ok(retval)
-}
+
 
 fn main() {
     let args: Vec<String> = env::args().skip(1).collect();
@@ -46,6 +36,16 @@ fn process_file(possible_file: String) -> Result<(), PdfError> {
     if metadata.is_file() {
         let file_len = metadata.len();
         let mut file = File::open(possible_file).unwrap();
+
+        match get_header(&mut file, file_len) {
+            Ok(pdf_version) => {
+                println!("version is {}", pdf_version)
+            },
+            Err(err) => {
+                return Err(err);
+            }
+        }
+
 
         match get_trailer_and_xref(&mut file, file_len) {
             Ok((trailer_dict, xref_table, startxref)) => {
@@ -87,6 +87,21 @@ fn process_file(possible_file: String) -> Result<(), PdfError> {
             desc: "argument is not a file".to_string(),
             underlying: None,
         })
+    }
+}
+
+fn get_header( file: &mut File, file_len: u64, ) -> Result<PdfVersion, PdfError> {
+    if 32 > file_len {
+        return Err( PdfError{ desc: "file very short".to_owned(), underlying: None });
+    }
+    let start_of_file = get_byte_array_from_file(file, 0 as usize, 32)?;
+    match pdf_header(&start_of_file) {
+        Ok((rest, pdf_version)) => {
+            Ok(pdf_version)
+        },
+        Err(_) => {
+            Err( PdfError{ desc: "pdf_header parsing failed; not a pdf, or needs front trimming".to_owned(), underlying: None })
+        }
     }
 }
 
@@ -142,4 +157,16 @@ fn parse_trailer(last_kaye: &Vec<u8>) -> Result<(PdfObject, usize), PdfError> {
             });
         }
     }
+}
+
+/// caller expected to get the file state and numbers right!
+fn get_byte_array_from_file(
+    file: &mut File,
+    start: usize,
+    length: usize,
+) -> Result<Vec<u8>, io::Error> {
+    let _seek_result = file.seek(SeekFrom::Start(start as u64))?;
+    let mut retval = vec![0u8; length as usize];
+    let _read_result = file.read_exact(&mut retval[..])?;
+    Ok(retval)
 }

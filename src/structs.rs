@@ -32,10 +32,31 @@ pub enum ErrorCodes {
     FirstObjectNumberInXrefNotZero,
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub enum PdfVersion {
     Known { ver: Vec<u8> },
     Unknown,
+}
+
+impl fmt::Display for PdfVersion {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
+            PdfVersion::Known { ver: ref version } => {
+                write!(
+                    f,
+                    "PDF Version {}",
+                    str::from_utf8(&version).unwrap_or("not-utf-8")
+                )
+            },
+            PdfVersion::Unknown => {
+                write!(
+                    f,
+                    "PDF Version Unknown"
+                )
+            },
+        }
+
+    }
 }
 
 #[derive(Debug, PartialEq, Clone)]
