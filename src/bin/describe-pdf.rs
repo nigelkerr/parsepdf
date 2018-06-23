@@ -1,6 +1,7 @@
 extern crate nom;
 extern crate parsepdf;
 extern crate regex;
+extern crate memmap;
 
 use nom::*;
 
@@ -14,7 +15,8 @@ use std::io::SeekFrom;
 
 use parsepdf::*;
 
-
+use memmap::MmapOptions;
+use std::io::Write;
 
 fn main() {
     let args: Vec<String> = env::args().skip(1).collect();
@@ -36,8 +38,9 @@ fn process_file(possible_file: String) -> Result<(), PdfError> {
     if metadata.is_file() {
         let file_len = metadata.len();
         let mut file = File::open(possible_file).unwrap();
+        let mmap = unsafe { MmapOptions::new().map(&file)? };
 
-        match get_header(&mut file, file_len) {
+        match get_header(&mmap, file_len) {
             Ok(pdf_version) => {
                 println!("version is {}", pdf_version)
             },
@@ -47,7 +50,7 @@ fn process_file(possible_file: String) -> Result<(), PdfError> {
         }
 
 
-        match get_trailer_and_xref(&mut file, file_len) {
+        match get_trailer_and_xref(&mmap, file_len) {
             Ok((trailer_dict, xref_table, startxref)) => {
                 println!("last xref starts at {}", startxref);
                 println!("trailer dictionary: {}", &trailer_dict);
@@ -90,11 +93,11 @@ fn process_file(possible_file: String) -> Result<(), PdfError> {
     }
 }
 
-fn get_header( file: &mut File, file_len: u64, ) -> Result<PdfVersion, PdfError> {
+fn get_header( file: &[u8], file_len: u64, ) -> Result<PdfVersion, PdfError> {
     if 32 > file_len {
         return Err( PdfError{ desc: "file very short".to_owned(), underlying: None });
     }
-    let start_of_file = get_byte_array_from_file(file, 0 as usize, 32)?;
+    let start_of_file = &file[0..32];
     match pdf_header(&start_of_file) {
         Ok((rest, pdf_version)) => {
             Ok(pdf_version)
@@ -106,12 +109,12 @@ fn get_header( file: &mut File, file_len: u64, ) -> Result<PdfVersion, PdfError>
 }
 
 fn get_trailer_and_xref(
-    file: &mut File,
+    file: &[u8],
     file_len: u64,
 ) -> Result<(PdfObject, CrossReferenceTable, usize), PdfError> {
-    let last_kaye = get_byte_array_from_file(file, (file_len - 1024) as usize, 1024 as usize)?;
+    let last_kaye = &file[(file_len - 1024) as usize..];
     let (dict, startxref) = parse_trailer(&last_kaye)?;
-    let xref_bytes = get_byte_array_from_file(file, startxref, file_len as usize - startxref)?;
+    let xref_bytes = &file[startxref..];
     match xref_table(&xref_bytes) {
         Ok((_rest, mut crt)) => {
             // assert something about _rest ?
@@ -132,7 +135,7 @@ fn get_trailer_and_xref(
 // find in last_kaye where the last instance of "trailer" is,
 // start our file_trailer from that last instance.
 
-fn parse_trailer(last_kaye: &Vec<u8>) -> Result<(PdfObject, usize), PdfError> {
+fn parse_trailer(last_kaye: &[u8]) -> Result<(PdfObject, usize), PdfError> {
     let re = Regex::new(r"trailer").unwrap();
     let mut trailer_offset: Option<usize> = None;
     for mat in re.find_iter(&last_kaye[..]) {

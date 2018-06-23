@@ -7,6 +7,7 @@ authors = ["Nigel Kerr <nigel.kerr@gmail.com>"]
 approx="0.1.1"
 lzw = "0.10.0"
 inflate = "0.4.2"
+memmap = "0.6.2"
 
 [dependencies.nom]
 version = "^4.0"
