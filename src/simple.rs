@@ -617,8 +617,14 @@ pub fn xref_table(input: &[u8]) -> IResult<&[u8], CrossReferenceTable> {
 
 // get the trailer Dictionary and the offset of the xref we need to look for.
 
+// this to be replaced with an entry point that permits accessing the several
+// cases beyond plain old §7.5.5: cross-reference stream (both pure and hybrid)
+// §7.5.8; Linearized files (Annex F)
+
 pub fn file_trailer(input: &[u8]) -> IResult<&[u8], (PdfObject, usize)> {
     // need to make these patterns stricter
+
+    println!("file_trailer: {:?}", input);
     match re_bytes_find!(input, r"^\s*trailer\s*(\r\n|\r|\n)") {
         Ok((rest, _trailer)) => match dictionary_object(rest) {
             Ok((rest2, dictionary)) => match re_bytes_capture!(
