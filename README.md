@@ -2,6 +2,10 @@
 
 Try to learn nom, rust, and the PDF 2.0 spec by parsing PDFs.
 
+## 2018-12-08
+
+updated to rust 2018 to see what's shakin', and if things are easier at this point.
+
 ## 2018-06-18
 
 Filters LZW, Flate, and RLE added, as well as the predictors for LZW and Flate.
