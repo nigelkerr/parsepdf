@@ -6,12 +6,12 @@ use std::str::FromStr;
 use nom::ErrorKind;
 use nom::*;
 
-use structs::ErrorCodes;
-use structs::IndirectObject;
-use structs::NameKeyedMap;
-use structs::PdfObject;
+use crate::structs::ErrorCodes;
+use crate::structs::IndirectObject;
+use crate::structs::NameKeyedMap;
+use crate::structs::PdfObject;
 
-use simple::*;
+use crate::simple::*;
 
 // array object § 7.3.6
 

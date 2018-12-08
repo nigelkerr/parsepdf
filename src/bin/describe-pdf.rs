@@ -99,7 +99,7 @@ fn get_header( file: &[u8], file_len: u64, ) -> Result<PdfVersion, PdfError> {
     }
     let start_of_file = &file[0..32];
     match pdf_header(&start_of_file) {
-        Ok((rest, pdf_version)) => {
+        Ok((_rest, pdf_version)) => {
             Ok(pdf_version)
         },
         Err(_) => {

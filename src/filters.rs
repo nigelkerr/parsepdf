@@ -11,11 +11,11 @@ use nom::*;
 
 // this wants nice chainability.
 
-use simple::bare_hexadecimal_string;
-use simple::is_pdf_whitespace;
-use simple::skip_whitespace;
+use crate::simple::bare_hexadecimal_string;
+use crate::simple::is_pdf_whitespace;
+use crate::simple::skip_whitespace;
 use std::io;
-use structs::PdfObject;
+use crate::structs::PdfObject;
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum DecodingResponse {
@@ -231,23 +231,23 @@ fn refuse_to_decode() -> Result<Vec<u8>, DecodingResponse> {
     Err(DecodingResponse::RefuseToDecode)
 }
 
-pub fn decode_ccittfax(input: &Vec<u8>) -> Result<Vec<u8>, DecodingResponse> {
+pub fn decode_ccittfax(_input: &Vec<u8>) -> Result<Vec<u8>, DecodingResponse> {
     refuse_to_decode()
 }
 
-pub fn decode_jbig2(input: &Vec<u8>) -> Result<Vec<u8>, DecodingResponse> {
+pub fn decode_jbig2(_input: &Vec<u8>) -> Result<Vec<u8>, DecodingResponse> {
     refuse_to_decode()
 }
 
-pub fn decode_dct(input: &Vec<u8>) -> Result<Vec<u8>, DecodingResponse> {
+pub fn decode_dct(_input: &Vec<u8>) -> Result<Vec<u8>, DecodingResponse> {
     refuse_to_decode()
 }
 
-pub fn decode_jpx(input: &Vec<u8>) -> Result<Vec<u8>, DecodingResponse> {
+pub fn decode_jpx(_input: &Vec<u8>) -> Result<Vec<u8>, DecodingResponse> {
     refuse_to_decode()
 }
 
-pub fn decode_crypt(input: &Vec<u8>) -> Result<Vec<u8>, DecodingResponse> {
+pub fn decode_crypt(_input: &Vec<u8>) -> Result<Vec<u8>, DecodingResponse> {
     refuse_to_decode()
 }
 

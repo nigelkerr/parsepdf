@@ -12,6 +12,6 @@ mod nesting;
 mod simple;
 mod structs;
 
-pub use nesting::*;
-pub use simple::*;
-pub use structs::*;
+pub use crate::nesting::*;
+pub use crate::simple::*;
+pub use crate::structs::*;

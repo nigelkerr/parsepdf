@@ -6,12 +6,12 @@ use nom::*;
 use std::str;
 use std::str::FromStr;
 
-use structs::CrossReferenceTable;
-use structs::ErrorCodes;
-use structs::PdfObject;
-use structs::PdfVersion;
+use crate::structs::CrossReferenceTable;
+use crate::structs::ErrorCodes;
+use crate::structs::PdfObject;
+use crate::structs::PdfVersion;
 
-use nesting::dictionary_object;
+use crate::nesting::dictionary_object;
 
 named!(pub pdf_line_ending_by_macro<&[u8],&[u8]>,
     alt!(
