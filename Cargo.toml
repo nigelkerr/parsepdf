@@ -1,0 +1,7 @@
+[package]
+name = "parsepdf"
+version = "0.1.0"
+authors = ["Nigel Kerr <nigel.kerr@gmail.com>"]
+edition = "2018"
+
+[dependencies]
