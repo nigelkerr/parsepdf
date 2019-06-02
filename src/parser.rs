@@ -79,6 +79,7 @@ pub fn recognize_pdf_header(i: &[u8]) -> IResult<&[u8], PdfVersion> {
     }
 }
 
+
 #[cfg(test)]
 mod tests {
 
