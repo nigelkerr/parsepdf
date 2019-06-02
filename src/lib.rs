@@ -6,6 +6,8 @@
 
 #[macro_use]
 extern crate nom;
+#[macro_use]
+extern crate approx;
 
 mod parser;
 

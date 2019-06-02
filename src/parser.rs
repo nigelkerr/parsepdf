@@ -1,9 +1,12 @@
 use nom::{
-    branch::alt, bytes::complete::*, combinator::*, error::*, sequence::*, Err, IResult, Needed,
+    branch::alt, bytes::complete::*, character::is_digit, combinator::*, error::*, sequence::*,
+    Err, IResult, Needed,
 };
 use std::collections::HashMap;
 use std::error;
 use std::fmt;
+use std::str;
+use std::str::FromStr;
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum PdfVersion {
@@ -187,7 +190,73 @@ pub fn recognize_pdf_header(i: &[u8]) -> IResult<&[u8], PdfVersion> {
 }
 
 pub fn recognize_pdf_null(i: &[u8]) -> IResult<&[u8], PdfObject> {
-    map(tag("null"), |_| PdfObject::Null)(i)
+    map(tag(b"null"), |_| PdfObject::Null)(i)
+}
+
+pub fn recognize_pdf_boolean(i: &[u8]) -> IResult<&[u8], PdfObject> {
+    alt((
+        map(tag(b"true"), |_| PdfObject::Boolean(true)),
+        map(tag(b"false"), |_| PdfObject::Boolean(false)),
+    ))(i)
+}
+
+// because we trust.
+fn bytes_to_i64(v: &[u8]) -> i64 {
+    FromStr::from_str(str::from_utf8(v).unwrap()).unwrap()
+}
+
+pub fn recognize_pdf_integer(i: &[u8]) -> IResult<&[u8], PdfObject> {
+    match tuple((
+        opt(alt((map(tag(b"+"), |_| 1), map(tag(b"-"), |_| -1)))),
+        map(take_while1(is_digit), |b| bytes_to_i64(b)),
+    ))(i)
+    {
+        Ok((rest, (Some(sign), number))) => Ok((rest, PdfObject::Integer(number * sign))),
+        Ok((rest, (None, number))) => Ok((rest, PdfObject::Integer(number))),
+        Err(err) => Err(err),
+    }
+}
+
+fn two_byte_slices_of_digits_to_f64(pre_digits: &[u8], post_digits: &[u8]) -> f64 {
+    let mut full_number: Vec<u8> = Vec::new();
+    full_number.extend_from_slice(pre_digits);
+    full_number.extend_from_slice(b".");
+    full_number.extend_from_slice(post_digits);
+    return bytes_to_f64(&full_number);
+}
+// because we trust.
+fn bytes_to_f64(v: &[u8]) -> f64 {
+    FromStr::from_str(str::from_utf8(v).unwrap()).unwrap()
+}
+
+/// Get a float per the wierd PDF rules that i dont trust std library functions
+/// with for some reason.
+pub fn recognize_pdf_float(i: &[u8]) -> IResult<&[u8], PdfObject> {
+    match alt((
+        tuple((
+            opt(alt((map(tag(b"+"), |_| 1f64), map(tag(b"-"), |_| -1f64)))),
+            take_while(is_digit),
+            tag(b"."),
+            take_while1(is_digit),
+        )),
+        tuple((
+            opt(alt((map(tag(b"+"), |_| 1f64), map(tag(b"-"), |_| -1f64)))),
+            take_while1(is_digit),
+            tag(b"."),
+            take_while(is_digit),
+        )),
+    ))(i)
+    {
+        Ok((rest, (Some(sign), pre_digits, decimal_point, post_digits))) => Ok((
+            rest,
+            PdfObject::Float(sign * two_byte_slices_of_digits_to_f64(pre_digits, post_digits)),
+        )),
+        Ok((rest, (None, pre_digits, decimal_point, post_digits))) => Ok((
+            rest,
+            PdfObject::Float(two_byte_slices_of_digits_to_f64(pre_digits, post_digits)),
+        )),
+        Err(err) => Err(err),
+    }
 }
 
 #[cfg(test)]
@@ -326,5 +395,70 @@ mod tests {
             ))),
             recognize_pdf_null(b"nul\r\n")
         );
+    }
+
+    #[test]
+    fn boolean_test() {
+        assert_eq!(
+            Ok((b"".as_bytes(), PdfObject::Boolean(true))),
+            recognize_pdf_boolean(b"true")
+        );
+        assert_eq!(
+            Ok((b"f".as_bytes(), PdfObject::Boolean(true))),
+            recognize_pdf_boolean(b"truef")
+        );
+        assert_eq!(
+            Ok((b"".as_bytes(), PdfObject::Boolean(false))),
+            recognize_pdf_boolean(b"false")
+        );
+    }
+
+    #[test]
+    fn integers_test() {
+        assert_eq!(
+            (b"".as_bytes(), PdfObject::Integer(123)),
+            recognize_pdf_integer(b"123").unwrap()
+        );
+        assert_eq!(
+            (b"".as_bytes(), PdfObject::Integer(-123)),
+            recognize_pdf_integer(b"-123").unwrap()
+        );
+        assert_eq!(
+            (b"".as_bytes(), PdfObject::Integer(0)),
+            recognize_pdf_integer(b"0").unwrap()
+        );
+        assert_eq!(
+            (b"".as_bytes(), PdfObject::Integer(0)),
+            recognize_pdf_integer(b"-0").unwrap()
+        ); // heh
+    }
+
+    macro_rules! float_test {
+        ($($name:ident: $value:expr,)*) => {
+        $(
+            #[test]
+            fn $name() {
+                let (input, expected) = $value;
+                match recognize_pdf_float(input) {
+                    Ok((_b, PdfObject::Float(v))) => {
+                        assert_relative_eq!(expected, v);
+                    },
+                    _ => {
+                        assert_eq!(5, 0);
+                    }
+                }
+            }
+        )*
+        }
+    }
+
+    float_test! {
+        f1: (b"123.0",123.0),
+        f2: (b"34.5",34.5),
+        f3: (b"-3.62",-3.62),
+        f4: (b"+123.6",123.6),
+        f5: (b"4.",4.0),
+        f6: (b"-.002",-0.002),
+        f7: (b"0.0",0.0),
     }
 }
