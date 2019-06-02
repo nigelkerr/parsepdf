@@ -1,7 +1,11 @@
 [package]
 name = "parsepdf"
-version = "0.1.0"
+version = "0.2.0"
 authors = ["Nigel Kerr <nigel.kerr@gmail.com>"]
 edition = "2018"
 
 [dependencies]
+
+[dependencies.nom]
+version = "5.0.0-beta2"
+features = ["regexp"]
