@@ -1,5 +1,5 @@
 use nom::{
-    branch::alt, bytes::complete::*, character::is_digit, combinator::*, error::*, sequence::*,
+    branch::alt, bytes::complete::*, character::is_digit, character::is_hex_digit, combinator::*, error::*, sequence::*,
     Err, IResult, Needed,
 };
 use std::collections::HashMap;
@@ -259,6 +259,62 @@ pub fn recognize_pdf_float(i: &[u8]) -> IResult<&[u8], PdfObject> {
     }
 }
 
+#[inline]
+pub fn is_pdf_whitespace(chr: u8) -> bool {
+    (chr == 0x00 || chr == 0x09 || chr == 0x0A || chr == 0x0C || chr == 0x0D || chr == 0x20)
+}
+
+#[inline]
+fn can_be_in_hexadecimal_string(chr: u8) -> bool {
+    is_hex_digit(chr) || is_pdf_whitespace(chr)
+}
+
+#[inline]
+pub fn from_hex(chr: u8) -> u8 {
+    // heh
+    if chr >= 0x30 && chr <= 0x39 {
+        chr - 0x30
+    } else if chr >= 0x41 && chr <= 0x46 {
+        chr - 0x37
+    } else {
+        chr - 0x57
+    }
+}
+
+// because we trust
+fn vec_of_bytes_from_hex_string_literal(input: &[u8]) -> Vec<u8> {
+    let mut result: Vec<u8> = Vec::new();
+    let filtered: Vec<u8> = input
+        .iter()
+        .filter(|&x| is_hex_digit(*x))
+        .map(|&x| from_hex(x))
+        .collect();
+
+    for pair in filtered.chunks(2) {
+        if pair.len() == 2 {
+            result.push((pair[0] << 4) + pair[1]);
+        } else if pair.len() == 1 {
+            result.push(pair[0] << 4);
+        }
+    }
+
+    result
+}
+
+
+pub fn recognize_pdf_hex_string(i: &[u8]) -> IResult<&[u8], PdfObject> {
+    match preceded(
+        tag(b"<"),
+        terminated(
+            map(take_while(can_be_in_hexadecimal_string), |v| vec_of_bytes_from_hex_string_literal(v)),
+            tag(b">")
+        )
+    )(i) {
+        Ok((rest, v)) => { Ok((rest, PdfObject::String(v)))},
+        Err(err) => { Err(err) },
+    }
+}
+
 #[cfg(test)]
 mod tests {
 
@@ -444,7 +500,7 @@ mod tests {
                         assert_relative_eq!(expected, v);
                     },
                     _ => {
-                        assert_eq!(5, 0);
+                        assert_eq!(10, 0);
                     }
                 }
             }
@@ -463,5 +519,40 @@ mod tests {
         f8: (b"-0.0",0.0),
         f9: (b"-.0",0.0),
         f10: (b"-0.",0.0),
+    }
+
+
+    #[test]
+    fn hexadecimal_string_test() {
+        assert_eq!(
+            Err(nom::Err::Error((b"->".as_bytes(), nom::error::ErrorKind::Tag))),
+            recognize_pdf_hex_string(b"<a->")
+        );
+    }
+    macro_rules! hexst {
+        ($($name:ident: $value:expr,)*) => {
+            $(
+                #[test]
+                fn $name() {
+                    let (input, expected) = $value;
+                    match recognize_pdf_hex_string(input).unwrap() {
+                        (_b, PdfObject::String(v)) => {
+                            assert_eq!( v, expected );
+                        },
+                        _ => {
+                            assert_eq!(11,0);
+                        }
+                    }
+                }
+            )*
+        }
+    }
+    hexst! {
+        hx1: (b"<abcdef0123456789>", vec![0xab, 0xcd, 0xef, 0x01, 0x23, 0x45, 0x67, 0x89]),
+        hx2: (b"<abc def0123\n456789 >", vec![0xab, 0xcd, 0xef, 0x01, 0x23, 0x45, 0x67, 0x89]),
+        hx3: (b"<ab>", vec![0xab]),
+        hx3a: (b"<a\rb>", vec![0xab]),
+        hx4: (b"<a>", vec![0xa0]),
+        hx5: (b"<ab cd\nef1>", vec![0xab, 0xcd, 0xef, 0x10]),
     }
 }
