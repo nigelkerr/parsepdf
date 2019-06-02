@@ -1,6 +1,5 @@
 use nom::{
-    branch::alt, bytes::complete::*, character, combinator::*, error::*, sequence::*, Err, IResult,
-    Needed,
+    branch::alt, bytes::complete::*, combinator::*, error::*, sequence::*, Err, IResult, Needed,
 };
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
@@ -34,9 +33,7 @@ impl From<&[u8]> for PdfVersion {
     }
 }
 
-pub fn recognize_pdf_version(
-    i: &[u8],
-) -> IResult<&[u8], PdfVersion> {
+pub fn recognize_pdf_version(i: &[u8]) -> IResult<&[u8], PdfVersion> {
     preceded(
         tag(b"%PDF-"),
         map(
@@ -56,6 +53,32 @@ pub fn recognize_pdf_version(
     )(i)
 }
 
+pub fn recognize_pdf_line_end(i: &[u8]) -> IResult<&[u8], &[u8]> {
+    alt((tag(b"\r\n"), tag(b"\n"), tag(b"\r")))(i)
+}
+
+pub fn recognize_pdf_comment(i: &[u8]) -> IResult<&[u8], &[u8]> {
+    preceded(
+        tag(b"%"),
+        terminated(
+            take_till(|b| (b == b'\r' || b == b'\n')),
+            recognize_pdf_line_end,
+        ),
+    )(i)
+}
+
+pub fn recognize_pdf_header(i: &[u8]) -> IResult<&[u8], PdfVersion> {
+    match tuple((
+        recognize_pdf_version,
+        recognize_pdf_line_end,
+        recognize_pdf_comment,
+    ))(i)
+    {
+        Ok((o, (pdf_version, _, _))) => return Ok((o, pdf_version)),
+        Err(x) => return Err(x),
+    }
+}
+
 #[cfg(test)]
 mod tests {
 
@@ -69,8 +92,19 @@ mod tests {
             recognize_pdf_version(b"%PDF-1.0\r\n")
         );
         assert_eq!(
-            Err(nom::Err::Error((b"1.9\r\n".as_bytes(), nom::error::ErrorKind::Tag))),
+            Err(nom::Err::Error((
+                b"1.9\r\n".as_bytes(),
+                nom::error::ErrorKind::Tag
+            ))),
             recognize_pdf_version(b"%PDF-1.9\r\n")
+        );
+    }
+
+    #[test]
+    fn recognize_header() {
+        assert_eq!(
+            Ok((b"".as_bytes(), PdfVersion::V1_1)),
+            recognize_pdf_header(b"%PDF-1.1\r\n%yolo\r")
         );
     }
 }
