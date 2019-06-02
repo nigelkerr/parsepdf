@@ -71,7 +71,7 @@ pub fn recognize_pdf_header(i: &[u8]) -> IResult<&[u8], PdfVersion> {
     match tuple((
         recognize_pdf_version,
         recognize_pdf_line_end,
-        recognize_pdf_comment,
+        opt(recognize_pdf_comment),
     ))(i)
     {
         Ok((o, (pdf_version, _, _))) => return Ok((o, pdf_version)),
@@ -85,26 +85,54 @@ mod tests {
     use super::*;
     use nom::AsBytes;
 
-    #[test]
-    fn recognize_version() {
-        assert_eq!(
-            Ok((b"\r\n".as_bytes(), PdfVersion::V1_0)),
-            recognize_pdf_version(b"%PDF-1.0\r\n")
-        );
-        assert_eq!(
-            Err(nom::Err::Error((
-                b"1.9\r\n".as_bytes(),
-                nom::error::ErrorKind::Tag
-            ))),
-            recognize_pdf_version(b"%PDF-1.9\r\n")
-        );
+    macro_rules! header_test_success_macro {
+        ($($name:ident: $value:expr,)*) => {
+            $(
+                #[test]
+                fn $name() {
+                    let (input, (expected_remainder, expected_value)) = $value;
+                    match recognize_pdf_header(input) {
+                        Ok((b, version)) => {
+                            assert_eq!(expected_value, version);
+                            assert_eq!(expected_remainder, b.as_bytes());
+                        },
+                        x => {
+                            println!("x: {:#?}", x);
+                            assert_eq!(1, 0);  // better way to do this part?
+                        }
+                    }
+                }
+            )*
+        }
     }
 
-    #[test]
-    fn recognize_header() {
-        assert_eq!(
-            Ok((b"".as_bytes(), PdfVersion::V1_1)),
-            recognize_pdf_header(b"%PDF-1.1\r\n%yolo\r")
-        );
+    macro_rules! header_test_fail_macro {
+        ($($name:ident: $value:expr,)*) => {
+            $(
+                #[test]
+                fn $name() {
+                    let (input, expected_err) = $value;
+                    match recognize_pdf_header(input) {
+                        Ok(x) => {
+                            println!("x: {:#?}", x);
+                            assert_eq!(2, 0);  // better way to do this part?
+                        },
+                        Err(e) => {
+                            assert_eq!(expected_err, e);
+                        },
+                    }
+                }
+            )*
+        }
     }
+
+    header_test_success_macro! {
+        h1: (b"%PDF-1.0\r\n", (b"", PdfVersion::V1_0)),
+        h2: (b"%PDF-1.0\r\n%yoyoyo1\r\n", (b"", PdfVersion::V1_0)),
+        h3: (b"%PDF-1.0\r\n99 0 obj\r\n", (b"99 0 obj\r\n", PdfVersion::V1_0)),
+    }
+    header_test_fail_macro! {
+        hf1: (b"%PDF-3.0\r\n", nom::Err::Error((b"3.0\r\n".as_bytes(), nom::error::ErrorKind::Tag))),
+    }
+
 }
