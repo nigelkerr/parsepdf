@@ -1,5 +1,6 @@
 use nom::{
-    branch::alt, bytes::complete::*, character::is_digit, character::is_hex_digit, combinator::*, error::*, sequence::*,
+    branch::alt, bytes::complete::*, character::*, combinator::*, error::*, sequence::*,
+    multi::*,
     Err, IResult, Needed,
 };
 use std::collections::HashMap;
@@ -301,8 +302,7 @@ fn vec_of_bytes_from_hex_string_literal(input: &[u8]) -> Vec<u8> {
     result
 }
 
-
-pub fn recognize_pdf_hex_string(i: &[u8]) -> IResult<&[u8], PdfObject> {
+pub fn recognize_pdf_hexidecimal_string(i: &[u8]) -> IResult<&[u8], PdfObject> {
     match preceded(
         tag(b"<"),
         terminated(
@@ -311,6 +311,139 @@ pub fn recognize_pdf_hex_string(i: &[u8]) -> IResult<&[u8], PdfObject> {
         )
     )(i) {
         Ok((rest, v)) => { Ok((rest, PdfObject::String(v)))},
+        Err(err) => { Err(err) },
+    }
+}
+
+/// only those digits that can be the high order
+/// third digit of a three-digit octal numeral
+/// representing a value from 0 to 255 inclusive.
+#[inline]
+fn is_oct_high_digit(chr: u8) -> bool {
+    chr >= 0x31 && chr <= 0x33
+}
+
+fn from_octal(i: u8) -> u8 {
+    ( i - 0x30u8 )
+}
+
+fn three_digit_octal(i: &[u8]) -> IResult<&[u8], u8> {
+    match tuple((
+        map(take_while_m_n(1usize, 1usize, is_oct_high_digit), |o: &[u8]| from_octal(o[0]) * 64),
+        map(take_while_m_n(2usize, 2usize, is_oct_digit), |o: &[u8]| (from_octal(o[0]) * 8) + from_octal(o[1]))
+    ))(i) {
+        Ok((rest, (hi, lo))) => { Ok((rest, hi + lo))},
+        Err(err) => { Err(err) },
+    }
+}
+
+fn two_digit_octal(i: &[u8]) -> IResult<&[u8], u8> {
+    map(take_while_m_n(2usize, 2usize, is_oct_digit), |o: &[u8]| (from_octal(o[0]) * 8) + from_octal(o[1]))(i)
+}
+
+fn one_digit_octal(i: &[u8]) -> IResult<&[u8], u8> {
+    map(take_while_m_n(1usize, 1usize, is_oct_digit), |o: &[u8]| from_octal(o[0]))(i)
+}
+
+fn recognize_octal_value_from_string_literal(i: &[u8]) -> IResult<&[u8], u8> {
+    alt((
+        three_digit_octal,
+        two_digit_octal,
+        one_digit_octal
+        ))(i)
+}
+
+fn recognize_valid_escapes_from_string_literal(i: &[u8]) -> IResult<&[u8], Vec<u8>> {
+    match tuple((
+        tag(b"\\"),
+        alt((
+            recognize_octal_value_from_string_literal,
+            map(tag(b"n"), |_| 0x0au8),
+            map(tag(b"r"), |_| 0x0du8),
+            map(tag(b"t"), |_| 0x09u8),
+            map(tag(b"b"), |_| 0x08u8),
+            map(tag(b"f"), |_| 0x0cu8),
+            map(tag(b"("), |_| 0x28u8),
+            map(tag(b")"), |_| 0x29u8),
+            map(tag(b"\\"), |_| 0x5cu8),
+            ))
+        ))(i) {
+        Ok((rest, (bs, bv))) => { Ok((rest, vec![bv])) },
+        Err(err) => { Err(err) },
+    }
+}
+
+fn recognize_elidable_line_ending_from_string_literal(i: &[u8]) -> IResult<&[u8], Vec<u8>> {
+    match tuple((
+        tag(b"\\"),
+        recognize_pdf_line_end,
+    ))(i) {
+        Ok((rest, (_,_))) => { Ok((rest, vec![])) },
+        Err(err) => { Err(err) },
+    }
+}
+
+fn recognize_line_ending_from_string_literal(i: &[u8]) -> IResult<&[u8], Vec<u8>> {
+    match recognize_pdf_line_end(i) {
+        Ok((rest, _)) => { Ok((rest, vec![0x0au8]))},
+        Err(err) => { Err(err) },
+    }
+}
+
+fn is_possible_in_string_literal(chr: u8) -> bool {
+    chr != b'\\' && chr != b'(' && chr != b')'
+}
+fn recognize_bytes_possible_in_string_literal(i: &[u8]) -> IResult<&[u8], Vec<u8>> {
+    map(take_while(is_possible_in_string_literal), |v: &[u8]| v.to_vec())(i)
+}
+
+fn recognize_empty_parens(i: &[u8]) -> IResult<&[u8], Vec<u8>> {
+    match tag("()")(i) {
+        Ok((rest, empty_parens)) => {
+            return Ok((rest, empty_parens.to_vec()))
+        },
+        Err(err) => { Err(err) },
+    }
+}
+
+fn recognize_recursive_balanced_parenthetical_in_string_literal(i: &[u8]) -> IResult<&[u8], Vec<u8>> {
+    match preceded(tag(b"("),
+            terminated(recognize_string_literal_body, tag(b")")))(i) {
+        Ok((rest, body)) => {
+            let mut result_vec: Vec<u8> = Vec::new();
+            result_vec.extend_from_slice(b"(");
+            result_vec.extend_from_slice(&body);
+            result_vec.extend_from_slice(b")");
+            Ok((rest, result_vec))
+        },
+        Err(err) => { Err(err) },
+    }
+}
+
+fn recognize_string_literal_body(i: &[u8]) -> IResult<&[u8], Vec<u8>> {
+    fold_many0(
+        alt((
+            recognize_valid_escapes_from_string_literal,
+            recognize_elidable_line_ending_from_string_literal,
+            recognize_line_ending_from_string_literal,
+            recognize_bytes_possible_in_string_literal,
+            recognize_empty_parens,
+            recognize_recursive_balanced_parenthetical_in_string_literal
+            )),
+        Vec::new(),
+        |mut acc: Vec<u8>, item| {
+            acc.extend_from_slice(&item);
+            acc
+        }
+    )(i)
+}
+
+pub fn recognize_pdf_literal_string(i: &[u8]) -> IResult<&[u8], PdfObject> {
+    match preceded(
+        tag(b"("),
+        terminated(recognize_string_literal_body, tag(b")"))
+    )(i) {
+        Ok((rest, v)) => { Ok((rest, PdfObject::String(v))) },
         Err(err) => { Err(err) },
     }
 }
@@ -526,7 +659,7 @@ mod tests {
     fn hexadecimal_string_test() {
         assert_eq!(
             Err(nom::Err::Error((b"->".as_bytes(), nom::error::ErrorKind::Tag))),
-            recognize_pdf_hex_string(b"<a->")
+            recognize_pdf_hexidecimal_string(b"<a->")
         );
     }
     macro_rules! hexst {
@@ -535,7 +668,7 @@ mod tests {
                 #[test]
                 fn $name() {
                     let (input, expected) = $value;
-                    match recognize_pdf_hex_string(input).unwrap() {
+                    match recognize_pdf_hexidecimal_string(input).unwrap() {
                         (_b, PdfObject::String(v)) => {
                             assert_eq!( v, expected );
                         },
@@ -554,5 +687,65 @@ mod tests {
         hx3a: (b"<a\rb>", vec![0xab]),
         hx4: (b"<a>", vec![0xa0]),
         hx5: (b"<ab cd\nef1>", vec![0xab, 0xcd, 0xef, 0x10]),
+    }
+
+    #[test]
+    fn octal_inside_string_literal_test() {
+        assert_eq!(Ok((b"9".as_bytes(), 32u8)), recognize_octal_value_from_string_literal(b"409"));
+        assert_eq!(Ok((b"4".as_bytes(), 36u8)), recognize_octal_value_from_string_literal(b"444"));
+        assert_eq!(Ok((b"8".as_bytes(), 1u8)), recognize_octal_value_from_string_literal(b"18"));
+        assert_eq!(Err(nom::Err::Error((b"999".as_bytes(), nom::error::ErrorKind::TakeWhileMN))), recognize_octal_value_from_string_literal(b"999"));
+    }
+
+
+
+    macro_rules! tlsr {
+        ($($name:ident: $value:expr,)*) => {
+            $(
+                #[test]
+                fn $name() {
+                    let (input, expected) = $value;
+                    match recognize_pdf_literal_string(input.as_bytes()) {
+                        Ok((_b, PdfObject::String(v))) => {
+                            assert_eq!(expected[..].to_owned(), v);
+                        },
+
+                        Err(err) => {
+                            println!("debug: {:#?}", err);
+                            assert_eq!(13,0);
+                        }
+                        _ => {
+                            assert_eq!(14,0);
+                        }
+                    }
+                }
+            )*
+        }
+    }
+
+    tlsr! {
+//        tlsr_00: ( b"(hiya)", b"hiya"),
+//        tlsr_0: (b"(abcd)", b"abcd"),
+//        tlsr_1: (b"(\\247)", b"\xA7"),
+//
+//        tlsr_2: (b"(a)", b"a"),
+//        tlsr_3: (b"(This is a string)", b"This is a string"),
+//        tlsr_4: (b"(Strings can contain newlines\nand such.)", b"Strings can contain newlines\nand such."),
+//        tlsr_5: (b"(Strings can contain balanced parentheses ()\nand special characters ( * ! & } ^ %and so on) .)",
+//                    b"Strings can contain balanced parentheses ()\nand special characters ( * ! & } ^ %and so on) ."),
+//        tlsr_6: (b"(The following is an empty string .)", b"The following is an empty string ."),
+        tlsr_7: (b"()", b""),
+//        tlsr_8: (b"(It has zero (0) length.)", b"It has zero (0) length."),
+//
+//        tlsr_9: (b"(These \\\rtwo strings \\\nare the same.)", b"These two strings are the same."),
+//        tlsr_a: (b"(These two strings are the same.)", b"These two strings are the same."),
+//
+//        tlsr_b: (b"(This string has an end-of-line at the end of it.\n)", b"This string has an end-of-line at the end of it.\n"),
+//        tlsr_c: (b"(So does this one.\\n)", b"So does this one.\n"),
+//        tlsr_d: (b"(This string contains \\245two octal characters\\307.)", b"This string contains \xA5two octal characters\xC7."),
+//        tlsr_e: (b"(\\0053)", b"\x053"),
+//        tlsr_f: (b"(\\053)", b"+"),
+//        tlsr_g: (b"(\\53)", b"+"),
+//        tlsr_h: (b"(\\533)", b"+3"),
     }
 }
