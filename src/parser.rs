@@ -320,7 +320,7 @@ pub fn recognize_pdf_hexidecimal_string(i: &[u8]) -> IResult<&[u8], PdfObject> {
 /// representing a value from 0 to 255 inclusive.
 #[inline]
 fn is_oct_high_digit(chr: u8) -> bool {
-    chr >= 0x31 && chr <= 0x33
+    chr >= 0x30 && chr <= 0x33
 }
 
 fn from_octal(i: u8) -> u8 {
@@ -346,6 +346,7 @@ fn one_digit_octal(i: &[u8]) -> IResult<&[u8], u8> {
 }
 
 fn recognize_octal_value_from_string_literal(i: &[u8]) -> IResult<&[u8], u8> {
+    println!("here 8 with {:#?}", i);
     alt((
         three_digit_octal,
         two_digit_octal,
@@ -354,6 +355,7 @@ fn recognize_octal_value_from_string_literal(i: &[u8]) -> IResult<&[u8], u8> {
 }
 
 fn recognize_valid_escapes_from_string_literal(i: &[u8]) -> IResult<&[u8], Vec<u8>> {
+    println!("here 7 with {:#?}", i);
     match tuple((
         tag(b"\\"),
         alt((
@@ -374,6 +376,7 @@ fn recognize_valid_escapes_from_string_literal(i: &[u8]) -> IResult<&[u8], Vec<u
 }
 
 fn recognize_elidable_line_ending_from_string_literal(i: &[u8]) -> IResult<&[u8], Vec<u8>> {
+    println!("here 6 with {:#?}", i);
     match tuple((
         tag(b"\\"),
         recognize_pdf_line_end,
@@ -384,6 +387,7 @@ fn recognize_elidable_line_ending_from_string_literal(i: &[u8]) -> IResult<&[u8]
 }
 
 fn recognize_line_ending_from_string_literal(i: &[u8]) -> IResult<&[u8], Vec<u8>> {
+    println!("here 5 with {:#?}", i);
     match recognize_pdf_line_end(i) {
         Ok((rest, _)) => { Ok((rest, vec![0x0au8]))},
         Err(err) => { Err(err) },
@@ -394,10 +398,12 @@ fn is_possible_in_string_literal(chr: u8) -> bool {
     chr != b'\\' && chr != b'(' && chr != b')'
 }
 fn recognize_bytes_possible_in_string_literal(i: &[u8]) -> IResult<&[u8], Vec<u8>> {
+    println!("here 4 with {:#?}", i);
     map(take_while(is_possible_in_string_literal), |v: &[u8]| v.to_vec())(i)
 }
 
 fn recognize_empty_parens(i: &[u8]) -> IResult<&[u8], Vec<u8>> {
+    println!("here 3 with {:#?}", i);
     match tag("()")(i) {
         Ok((rest, empty_parens)) => {
             return Ok((rest, empty_parens.to_vec()))
@@ -407,6 +413,7 @@ fn recognize_empty_parens(i: &[u8]) -> IResult<&[u8], Vec<u8>> {
 }
 
 fn recognize_recursive_balanced_parenthetical_in_string_literal(i: &[u8]) -> IResult<&[u8], Vec<u8>> {
+    println!("here 2 with {:#?}", i);
     match preceded(tag(b"("),
             terminated(recognize_string_literal_body, tag(b")")))(i) {
         Ok((rest, body)) => {
@@ -421,14 +428,15 @@ fn recognize_recursive_balanced_parenthetical_in_string_literal(i: &[u8]) -> IRe
 }
 
 fn recognize_string_literal_body(i: &[u8]) -> IResult<&[u8], Vec<u8>> {
+    println!("here 1 with {:#?}", i);
     fold_many0(
         alt((
             recognize_valid_escapes_from_string_literal,
             recognize_elidable_line_ending_from_string_literal,
             recognize_line_ending_from_string_literal,
-            recognize_bytes_possible_in_string_literal,
             recognize_empty_parens,
-            recognize_recursive_balanced_parenthetical_in_string_literal
+            recognize_recursive_balanced_parenthetical_in_string_literal,
+            recognize_bytes_possible_in_string_literal,
             )),
         Vec::new(),
         |mut acc: Vec<u8>, item| {
@@ -439,6 +447,7 @@ fn recognize_string_literal_body(i: &[u8]) -> IResult<&[u8], Vec<u8>> {
 }
 
 pub fn recognize_pdf_literal_string(i: &[u8]) -> IResult<&[u8], PdfObject> {
+    println!("here 0 with {:#?}", i);
     match preceded(
         tag(b"("),
         terminated(recognize_string_literal_body, tag(b")"))
@@ -689,13 +698,13 @@ mod tests {
         hx5: (b"<ab cd\nef1>", vec![0xab, 0xcd, 0xef, 0x10]),
     }
 
-    #[test]
-    fn octal_inside_string_literal_test() {
-        assert_eq!(Ok((b"9".as_bytes(), 32u8)), recognize_octal_value_from_string_literal(b"409"));
-        assert_eq!(Ok((b"4".as_bytes(), 36u8)), recognize_octal_value_from_string_literal(b"444"));
-        assert_eq!(Ok((b"8".as_bytes(), 1u8)), recognize_octal_value_from_string_literal(b"18"));
-        assert_eq!(Err(nom::Err::Error((b"999".as_bytes(), nom::error::ErrorKind::TakeWhileMN))), recognize_octal_value_from_string_literal(b"999"));
-    }
+//    #[test]
+//    fn octal_inside_string_literal_test() {
+//        assert_eq!(Ok((b"9".as_bytes(), 32u8)), recognize_octal_value_from_string_literal(b"409"));
+//        assert_eq!(Ok((b"4".as_bytes(), 36u8)), recognize_octal_value_from_string_literal(b"444"));
+//        assert_eq!(Ok((b"8".as_bytes(), 1u8)), recognize_octal_value_from_string_literal(b"18"));
+//        assert_eq!(Err(nom::Err::Error((b"999".as_bytes(), nom::error::ErrorKind::TakeWhileMN))), recognize_octal_value_from_string_literal(b"999"));
+//    }
 
 
 
