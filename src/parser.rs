@@ -690,13 +690,13 @@ mod tests {
         hx5: (b"<ab cd\nef1>", vec![0xab, 0xcd, 0xef, 0x10]),
     }
 
-//    #[test]
-//    fn octal_inside_string_literal_test() {
-//        assert_eq!(Ok((b"9".as_bytes(), 32u8)), recognize_octal_value_from_string_literal(b"409"));
-//        assert_eq!(Ok((b"4".as_bytes(), 36u8)), recognize_octal_value_from_string_literal(b"444"));
-//        assert_eq!(Ok((b"8".as_bytes(), 1u8)), recognize_octal_value_from_string_literal(b"18"));
-//        assert_eq!(Err(nom::Err::Error((b"999".as_bytes(), nom::error::ErrorKind::TakeWhileMN))), recognize_octal_value_from_string_literal(b"999"));
-//    }
+    #[test]
+    fn octal_inside_string_literal_test() {
+        assert_eq!(Ok((b"9".as_bytes(), 32u8)), recognize_octal_value_from_string_literal(b"409"));
+        assert_eq!(Ok((b"4".as_bytes(), 36u8)), recognize_octal_value_from_string_literal(b"444"));
+        assert_eq!(Ok((b"8".as_bytes(), 1u8)), recognize_octal_value_from_string_literal(b"18"));
+        assert_eq!(Err(nom::Err::Error((b"999".as_bytes(), nom::error::ErrorKind::TakeWhileMN))), recognize_octal_value_from_string_literal(b"999"));
+    }
 
 
 
