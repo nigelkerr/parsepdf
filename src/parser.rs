@@ -1260,6 +1260,7 @@ mod tests {
                     ).unwrap().unwrap()
                 )),
         rd_1: (b"<< >>", PdfObject::Dictionary( NameMap::new() )),
+        rd_1a: (b"<<>>", PdfObject::Dictionary( NameMap::new() )),
         rd_2: (b"<</yo%yo\n1>>", PdfObject::Dictionary( NameMap::of(
                                     vec![
                                         PdfObject::Name( b"yo"[..].to_owned()),
