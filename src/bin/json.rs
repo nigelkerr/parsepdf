@@ -150,7 +150,7 @@ fn root<'a, E: ParseError<&'a str>>(i: &'a str) -> IResult<&'a str, JsonValue, E
 
 pub fn main() {
     let data =
-        "  { \"a\"\t: 42, \"b\": [ \"x\", \"y\", 12 ] , \"c\": { \"hello\" : \"world\" }  } ";
+        "  [ [ [1],2 ],3] ";
 
     println!("will try to parse valid JSON data:\n\n{}\n", data);
 

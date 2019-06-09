@@ -1,7 +1,7 @@
 use nom::{
-    branch::alt, bytes::complete::*, character::*, combinator::*, error::*, sequence::*,
+    branch::alt, bytes::complete::*, character::*, combinator::*, sequence::*,
     multi::*,
-    Err, IResult, Needed,
+    IResult,
 };
 use std::collections::HashMap;
 use std::error;
@@ -248,11 +248,11 @@ pub fn recognize_pdf_float(i: &[u8]) -> IResult<&[u8], PdfObject> {
         )),
     ))(i)
     {
-        Ok((rest, (Some(sign), pre_digits, decimal_point, post_digits))) => Ok((
+        Ok((rest, (Some(sign), pre_digits, _decimal_point, post_digits))) => Ok((
             rest,
             PdfObject::Float(sign * two_byte_slices_of_digits_to_f64(pre_digits, post_digits)),
         )),
-        Ok((rest, (None, pre_digits, decimal_point, post_digits))) => Ok((
+        Ok((rest, (None, pre_digits, _decimal_point, post_digits))) => Ok((
             rest,
             PdfObject::Float(two_byte_slices_of_digits_to_f64(pre_digits, post_digits)),
         )),
@@ -346,7 +346,6 @@ fn one_digit_octal(i: &[u8]) -> IResult<&[u8], u8> {
 }
 
 fn recognize_octal_value_from_string_literal(i: &[u8]) -> IResult<&[u8], u8> {
-    println!("here 8 with {:#?}", i);
     alt((
         three_digit_octal,
         two_digit_octal,
@@ -355,7 +354,6 @@ fn recognize_octal_value_from_string_literal(i: &[u8]) -> IResult<&[u8], u8> {
 }
 
 fn recognize_valid_escapes_from_string_literal(i: &[u8]) -> IResult<&[u8], Vec<u8>> {
-    println!("here 7 with {:#?}", i);
     match tuple((
         tag(b"\\"),
         alt((
@@ -370,13 +368,12 @@ fn recognize_valid_escapes_from_string_literal(i: &[u8]) -> IResult<&[u8], Vec<u
             map(tag(b"\\"), |_| 0x5cu8),
             ))
         ))(i) {
-        Ok((rest, (bs, bv))) => { Ok((rest, vec![bv])) },
+        Ok((rest, (_bs, bv))) => { Ok((rest, vec![bv])) },
         Err(err) => { Err(err) },
     }
 }
 
 fn recognize_elidable_line_ending_from_string_literal(i: &[u8]) -> IResult<&[u8], Vec<u8>> {
-    println!("here 6 with {:#?}", i);
     match tuple((
         tag(b"\\"),
         recognize_pdf_line_end,
@@ -387,7 +384,6 @@ fn recognize_elidable_line_ending_from_string_literal(i: &[u8]) -> IResult<&[u8]
 }
 
 fn recognize_line_ending_from_string_literal(i: &[u8]) -> IResult<&[u8], Vec<u8>> {
-    println!("here 5 with {:#?}", i);
     match recognize_pdf_line_end(i) {
         Ok((rest, _)) => { Ok((rest, vec![0x0au8]))},
         Err(err) => { Err(err) },
@@ -398,12 +394,10 @@ fn is_possible_in_string_literal(chr: u8) -> bool {
     chr != b'\\' && chr != b'(' && chr != b')'
 }
 fn recognize_bytes_possible_in_string_literal(i: &[u8]) -> IResult<&[u8], Vec<u8>> {
-    println!("here 4 with {:#?}", i);
-    map(take_while(is_possible_in_string_literal), |v: &[u8]| v.to_vec())(i)
+    map(take_while1(is_possible_in_string_literal), |v: &[u8]| v.to_vec())(i)
 }
 
 fn recognize_empty_parens(i: &[u8]) -> IResult<&[u8], Vec<u8>> {
-    println!("here 3 with {:#?}", i);
     match tag("()")(i) {
         Ok((rest, empty_parens)) => {
             return Ok((rest, empty_parens.to_vec()))
@@ -413,7 +407,6 @@ fn recognize_empty_parens(i: &[u8]) -> IResult<&[u8], Vec<u8>> {
 }
 
 fn recognize_recursive_balanced_parenthetical_in_string_literal(i: &[u8]) -> IResult<&[u8], Vec<u8>> {
-    println!("here 2 with {:#?}", i);
     match preceded(tag(b"("),
             terminated(recognize_string_literal_body, tag(b")")))(i) {
         Ok((rest, body)) => {
@@ -428,7 +421,7 @@ fn recognize_recursive_balanced_parenthetical_in_string_literal(i: &[u8]) -> IRe
 }
 
 fn recognize_string_literal_body(i: &[u8]) -> IResult<&[u8], Vec<u8>> {
-    println!("here 1 with {:#?}", i);
+
     fold_many0(
         alt((
             recognize_valid_escapes_from_string_literal,
@@ -439,15 +432,14 @@ fn recognize_string_literal_body(i: &[u8]) -> IResult<&[u8], Vec<u8>> {
             recognize_bytes_possible_in_string_literal,
             )),
         Vec::new(),
-        |mut acc: Vec<u8>, item| {
-            acc.extend_from_slice(&item);
+        |mut acc: Vec<u8>, item: Vec<u8>| {
+            acc.extend(item);
             acc
         }
     )(i)
 }
 
 pub fn recognize_pdf_literal_string(i: &[u8]) -> IResult<&[u8], PdfObject> {
-    println!("here 0 with {:#?}", i);
     match preceded(
         tag(b"("),
         terminated(recognize_string_literal_body, tag(b")"))
@@ -733,28 +725,28 @@ mod tests {
     }
 
     tlsr! {
-//        tlsr_00: ( b"(hiya)", b"hiya"),
-//        tlsr_0: (b"(abcd)", b"abcd"),
-//        tlsr_1: (b"(\\247)", b"\xA7"),
-//
-//        tlsr_2: (b"(a)", b"a"),
-//        tlsr_3: (b"(This is a string)", b"This is a string"),
-//        tlsr_4: (b"(Strings can contain newlines\nand such.)", b"Strings can contain newlines\nand such."),
-//        tlsr_5: (b"(Strings can contain balanced parentheses ()\nand special characters ( * ! & } ^ %and so on) .)",
-//                    b"Strings can contain balanced parentheses ()\nand special characters ( * ! & } ^ %and so on) ."),
-//        tlsr_6: (b"(The following is an empty string .)", b"The following is an empty string ."),
+        tlsr_00: ( b"(hiya)", b"hiya"),
+        tlsr_0: (b"(abcd)", b"abcd"),
+        tlsr_1: (b"(\\247)", b"\xA7"),
+
+        tlsr_2: (b"(a)", b"a"),
+        tlsr_3: (b"(This is a string)", b"This is a string"),
+        tlsr_4: (b"(Strings can contain newlines\nand such.)", b"Strings can contain newlines\nand such."),
+        tlsr_5: (b"(Strings can contain balanced parentheses ()\nand special characters ( * ! & } ^ %and so on) .)",
+                    b"Strings can contain balanced parentheses ()\nand special characters ( * ! & } ^ %and so on) ."),
+        tlsr_6: (b"(The following is an empty string .)", b"The following is an empty string ."),
         tlsr_7: (b"()", b""),
-//        tlsr_8: (b"(It has zero (0) length.)", b"It has zero (0) length."),
-//
-//        tlsr_9: (b"(These \\\rtwo strings \\\nare the same.)", b"These two strings are the same."),
-//        tlsr_a: (b"(These two strings are the same.)", b"These two strings are the same."),
-//
-//        tlsr_b: (b"(This string has an end-of-line at the end of it.\n)", b"This string has an end-of-line at the end of it.\n"),
-//        tlsr_c: (b"(So does this one.\\n)", b"So does this one.\n"),
-//        tlsr_d: (b"(This string contains \\245two octal characters\\307.)", b"This string contains \xA5two octal characters\xC7."),
-//        tlsr_e: (b"(\\0053)", b"\x053"),
-//        tlsr_f: (b"(\\053)", b"+"),
-//        tlsr_g: (b"(\\53)", b"+"),
-//        tlsr_h: (b"(\\533)", b"+3"),
+        tlsr_8: (b"(It has zero (0) length.)", b"It has zero (0) length."),
+
+        tlsr_9: (b"(These \\\rtwo strings \\\nare the same.)", b"These two strings are the same."),
+        tlsr_a: (b"(These two strings are the same.)", b"These two strings are the same."),
+
+        tlsr_b: (b"(This string has an end-of-line at the end of it.\n)", b"This string has an end-of-line at the end of it.\n"),
+        tlsr_c: (b"(So does this one.\\n)", b"So does this one.\n"),
+        tlsr_d: (b"(This string contains \\245two octal characters\\307.)", b"This string contains \xA5two octal characters\xC7."),
+        tlsr_e: (b"(\\0053)", b"\x053"),
+        tlsr_f: (b"(\\053)", b"+"),
+        tlsr_g: (b"(\\53)", b"+"),
+        tlsr_h: (b"(\\533)", b"+3"),
     }
 }

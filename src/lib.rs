@@ -16,7 +16,7 @@ pub use crate::parser::*;
 #[cfg(test)]
 mod tests {
     use nom::{
-        bytes, character, error::ErrorKind, error::VerboseError, error::VerboseErrorKind, Err,
+        bytes, character, error::ErrorKind, Err,
         IResult, Needed,
     };
 
