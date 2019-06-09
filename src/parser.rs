@@ -2,12 +2,11 @@ use nom::{
     branch::alt, bytes::complete::*, character::*, combinator::*, multi::*, sequence::*, IResult,
 };
 use std::collections::HashMap;
+use std::convert::TryFrom;
 use std::error;
 use std::fmt;
 use std::str;
 use std::str::FromStr;
-use std::convert::TryFrom;
-
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum PdfVersion {
@@ -48,6 +47,7 @@ pub enum PdfObject {
     Float(f64),
     String(Vec<u8>),
     Name(Vec<u8>),
+    Comment,
     Array(Vec<PdfObject>),
     Dictionary(NameMap),
     Stream(NameMap, Vec<u8>),
@@ -112,8 +112,8 @@ impl NameMap {
             return Err(NameMapError::OddNumberOfItemsGiven);
         }
 
-        for window in values.chunks(2) {
-            match map.insert(window[0].clone(), window[1].clone()) {
+        for chunk in values.chunks(2) {
+            match map.insert(chunk[0].clone(), chunk[1].clone()) {
                 Ok(_) => {}
                 Err(x) => return Err(x),
             }
@@ -168,22 +168,31 @@ pub fn recognize_pdf_line_end(i: &[u8]) -> IResult<&[u8], &[u8]> {
 }
 
 /// recognize a PDF ccomment as such, even though we will just discard them.
-pub fn recognize_pdf_comment(i: &[u8]) -> IResult<&[u8], &[u8]> {
-    preceded(
-        tag(b"%"),
-        terminated(
-            take_till(|b| (b == b'\r' || b == b'\n')),
-            recognize_pdf_line_end,
+pub fn recognize_pdf_comment(i: &[u8]) -> IResult<&[u8], PdfObject> {
+    map(
+        preceded(
+            pdf_whitespace,
+            preceded(
+                tag(b"%"),
+                terminated(
+                    take_till(|b| (b == b'\r' || b == b'\n')),
+                    recognize_pdf_line_end,
+                ),
+            ),
         ),
+        |_| PdfObject::Comment,
     )(i)
 }
 
 pub fn recognize_pdf_header(i: &[u8]) -> IResult<&[u8], PdfVersion> {
-    match tuple((
-        recognize_pdf_version,
-        recognize_pdf_line_end,
-        opt(recognize_pdf_comment),
-    ))(i)
+    match preceded(
+        pdf_whitespace,
+        tuple((
+            recognize_pdf_version,
+            recognize_pdf_line_end,
+            opt(recognize_pdf_comment),
+        )),
+    )(i)
     {
         Ok((o, (pdf_version, _, _))) => return Ok((o, pdf_version)),
         Err(x) => return Err(x),
@@ -191,14 +200,17 @@ pub fn recognize_pdf_header(i: &[u8]) -> IResult<&[u8], PdfVersion> {
 }
 
 pub fn recognize_pdf_null(i: &[u8]) -> IResult<&[u8], PdfObject> {
-    map(tag(b"null"), |_| PdfObject::Null)(i)
+    preceded(pdf_whitespace, map(tag(b"null"), |_| PdfObject::Null))(i)
 }
 
 pub fn recognize_pdf_boolean(i: &[u8]) -> IResult<&[u8], PdfObject> {
-    alt((
-        map(tag(b"true"), |_| PdfObject::Boolean(true)),
-        map(tag(b"false"), |_| PdfObject::Boolean(false)),
-    ))(i)
+    preceded(
+        pdf_whitespace,
+        alt((
+            map(tag(b"true"), |_| PdfObject::Boolean(true)),
+            map(tag(b"false"), |_| PdfObject::Boolean(false)),
+        )),
+    )(i)
 }
 
 // because we trust.
@@ -207,10 +219,13 @@ fn bytes_to_i64(v: &[u8]) -> i64 {
 }
 
 pub fn recognize_pdf_integer(i: &[u8]) -> IResult<&[u8], PdfObject> {
-    match tuple((
-        opt(alt((map(tag(b"+"), |_| 1), map(tag(b"-"), |_| -1)))),
-        map(take_while1(is_digit), |b| bytes_to_i64(b)),
-    ))(i)
+    match preceded(
+        pdf_whitespace,
+        tuple((
+            opt(alt((map(tag(b"+"), |_| 1), map(tag(b"-"), |_| -1)))),
+            map(take_while1(is_digit), |b| bytes_to_i64(b)),
+        )),
+    )(i)
     {
         Ok((rest, (Some(sign), number))) => Ok((rest, PdfObject::Integer(number * sign))),
         Ok((rest, (None, number))) => Ok((rest, PdfObject::Integer(number))),
@@ -225,6 +240,7 @@ fn two_byte_slices_of_digits_to_f64(pre_digits: &[u8], post_digits: &[u8]) -> f6
     full_number.extend_from_slice(post_digits);
     return bytes_to_f64(&full_number);
 }
+
 // because we trust.
 fn bytes_to_f64(v: &[u8]) -> f64 {
     FromStr::from_str(str::from_utf8(v).unwrap()).unwrap()
@@ -233,20 +249,23 @@ fn bytes_to_f64(v: &[u8]) -> f64 {
 /// Get a float per the wierd PDF rules that i dont trust std library functions
 /// with for some reason.
 pub fn recognize_pdf_float(i: &[u8]) -> IResult<&[u8], PdfObject> {
-    match alt((
-        tuple((
-            opt(alt((map(tag(b"+"), |_| 1f64), map(tag(b"-"), |_| -1f64)))),
-            take_while(is_digit),
-            tag(b"."),
-            take_while1(is_digit),
+    match preceded(
+        pdf_whitespace,
+        alt((
+            tuple((
+                opt(alt((map(tag(b"+"), |_| 1f64), map(tag(b"-"), |_| -1f64)))),
+                take_while(is_digit),
+                tag(b"."),
+                take_while1(is_digit),
+            )),
+            tuple((
+                opt(alt((map(tag(b"+"), |_| 1f64), map(tag(b"-"), |_| -1f64)))),
+                take_while1(is_digit),
+                tag(b"."),
+                take_while(is_digit),
+            )),
         )),
-        tuple((
-            opt(alt((map(tag(b"+"), |_| 1f64), map(tag(b"-"), |_| -1f64)))),
-            take_while1(is_digit),
-            tag(b"."),
-            take_while(is_digit),
-        )),
-    ))(i)
+    )(i)
     {
         Ok((rest, (Some(sign), pre_digits, _decimal_point, post_digits))) => Ok((
             rest,
@@ -261,12 +280,16 @@ pub fn recognize_pdf_float(i: &[u8]) -> IResult<&[u8], PdfObject> {
 }
 
 #[inline]
-pub fn is_pdf_whitespace(chr: u8) -> bool {
+fn is_pdf_whitespace(chr: u8) -> bool {
     (chr == 0x00 || chr == 0x09 || chr == 0x0A || chr == 0x0C || chr == 0x0D || chr == 0x20)
 }
 
+fn pdf_whitespace(i: &[u8]) -> IResult<&[u8], &[u8]> {
+    take_while(is_pdf_whitespace)(i)
+}
+
 #[inline]
-pub fn is_pdf_delimiter(chr: u8) -> bool {
+fn is_pdf_delimiter(chr: u8) -> bool {
     (chr == 0x28
         || chr == 0x29
         || chr == 0x3c
@@ -285,7 +308,7 @@ fn can_be_in_hexadecimal_string(chr: u8) -> bool {
 }
 
 #[inline]
-pub fn from_hex(chr: u8) -> u8 {
+fn from_hex(chr: u8) -> u8 {
     // heh
     if chr >= 0x30 && chr <= 0x39 {
         chr - 0x30
@@ -318,12 +341,15 @@ fn vec_of_bytes_from_hex_string_literal(input: &[u8]) -> Vec<u8> {
 
 pub fn recognize_pdf_hexidecimal_string(i: &[u8]) -> IResult<&[u8], PdfObject> {
     match preceded(
-        tag(b"<"),
-        terminated(
-            map(take_while(can_be_in_hexadecimal_string), |v| {
-                vec_of_bytes_from_hex_string_literal(v)
-            }),
-            tag(b">"),
+        pdf_whitespace,
+        preceded(
+            tag(b"<"),
+            terminated(
+                map(take_while(can_be_in_hexadecimal_string), |v| {
+                    vec_of_bytes_from_hex_string_literal(v)
+                }),
+                tag(b">"),
+            ),
         ),
     )(i)
     {
@@ -417,6 +443,7 @@ fn recognize_line_ending_from_string_literal(i: &[u8]) -> IResult<&[u8], Vec<u8>
 fn is_possible_in_string_literal(chr: u8) -> bool {
     chr != b'\\' && chr != b'(' && chr != b')'
 }
+
 fn recognize_bytes_possible_in_string_literal(i: &[u8]) -> IResult<&[u8], Vec<u8>> {
     map(take_while1(is_possible_in_string_literal), |v: &[u8]| {
         v.to_vec()
@@ -469,8 +496,11 @@ fn recognize_string_literal_body(i: &[u8]) -> IResult<&[u8], Vec<u8>> {
 
 pub fn recognize_pdf_literal_string(i: &[u8]) -> IResult<&[u8], PdfObject> {
     match preceded(
-        tag(b"("),
-        terminated(recognize_string_literal_body, tag(b")")),
+        pdf_whitespace,
+        preceded(
+            tag(b"("),
+            terminated(recognize_string_literal_body, tag(b")")),
+        ),
     )(i)
     {
         Ok((rest, v)) => Ok((rest, PdfObject::String(v))),
@@ -498,17 +528,20 @@ fn recognize_name_unencoded_byte(i: &[u8]) -> IResult<&[u8], Vec<u8>> {
 pub fn recognize_pdf_name(i: &[u8]) -> IResult<&[u8], PdfObject> {
     map(
         preceded(
-            tag(b"/"),
-            fold_many1(
-                alt((
-                    recognize_name_hex_encoded_byte,
-                    recognize_name_unencoded_byte,
-                )),
-                Vec::new(),
-                |mut acc: Vec<u8>, item: Vec<u8>| {
-                    acc.extend(item);
-                    acc
-                },
+            pdf_whitespace,
+            preceded(
+                tag(b"/"),
+                fold_many1(
+                    alt((
+                        recognize_name_hex_encoded_byte,
+                        recognize_name_unencoded_byte,
+                    )),
+                    Vec::new(),
+                    |mut acc: Vec<u8>, item: Vec<u8>| {
+                        acc.extend(item);
+                        acc
+                    },
+                ),
             ),
         ),
         |v: Vec<u8>| PdfObject::Name(v),
@@ -518,26 +551,30 @@ pub fn recognize_pdf_name(i: &[u8]) -> IResult<&[u8], PdfObject> {
 fn is_non_zero_digit(chr: u8) -> bool {
     chr >= 0x31 && chr <= 0x39
 }
+
 fn recognize_digits_not_beginning_with_zero(i: &[u8]) -> IResult<&[u8], &[u8]> {
-    match tuple((
-        take_while1(is_non_zero_digit),
-        take_while(is_digit),
-        ))(i) {
-        Ok((rest, (start, end))) => {
-            Ok((rest, &i[0..(start.len() + end.len())]))
-        },
-        Err(err) => { Err(err) },
+    match preceded(
+        pdf_whitespace,
+        tuple((take_while1(is_non_zero_digit), take_while(is_digit))),
+    )(i)
+    {
+        Ok((rest, (start, end))) => Ok((rest, &i[0..(start.len() + end.len())])),
+        Err(err) => Err(err),
     }
 }
 
 pub fn recognize_pdf_indirect_reference(i: &[u8]) -> IResult<&[u8], PdfObject> {
-    match tuple((
-        recognize_digits_not_beginning_with_zero,
-        tag(b" "),
-        take_while(is_digit),
-        tag(b" R")
-        ))(i) {
-        Ok((rest, (object_number, _, object_generation, _ ))) => {
+    match preceded(
+        pdf_whitespace,
+        tuple((
+            recognize_digits_not_beginning_with_zero,
+            tag(b" "),
+            take_while(is_digit),
+            tag(b" R"),
+        )),
+    )(i)
+    {
+        Ok((rest, (object_number, _, object_generation, _))) => {
             let number_raw: i64 = bytes_to_i64(object_number);
             let generation_raw: i64 = bytes_to_i64(object_generation);
 
@@ -545,33 +582,120 @@ pub fn recognize_pdf_indirect_reference(i: &[u8]) -> IResult<&[u8], PdfObject> {
             let mut generation_cast: u16 = 0;
 
             match u32::try_from(number_raw) {
-                Ok(v) => { number_cast = v; }
+                Ok(v) => {
+                    number_cast = v;
+                }
                 Err(_x) => {
                     // this isnt right but i dont get readily how to do otherwise neatly
-                    return Err(nom::Err::Failure((i, nom::error::ErrorKind::Digit)))
+                    return Err(nom::Err::Failure((i, nom::error::ErrorKind::Digit)));
                 }
             }
 
             match u16::try_from(generation_raw) {
-                Ok(v) => { generation_cast = v; }
+                Ok(v) => {
+                    generation_cast = v;
+                }
                 Err(_x) => {
                     // this isnt right but i dont get readily how to do otherwise neatly
-                    return Err(nom::Err::Failure((i, nom::error::ErrorKind::Digit)))
+                    return Err(nom::Err::Failure((i, nom::error::ErrorKind::Digit)));
                 }
             }
 
-            Ok((rest, PdfObject::IndirectReference {
-                number: number_cast,
-                generation: generation_cast,
-            }))
+            Ok((
+                rest,
+                PdfObject::IndirectReference {
+                    number: number_cast,
+                    generation: generation_cast,
+                },
+            ))
+        }
+        Err(err) => Err(err),
+    }
+}
+
+pub fn recognize_pdf_array(i: &[u8]) -> IResult<&[u8], PdfObject> {
+    map(
+        preceded(
+            pdf_whitespace,
+            delimited(
+                tag(b"["),
+                fold_many0(
+                    alt((
+                        recognize_pdf_indirect_reference,
+                        recognize_pdf_integer,
+                        recognize_pdf_float,
+                        recognize_pdf_null,
+                        recognize_pdf_boolean,
+                        recognize_pdf_name,
+                        recognize_pdf_comment,
+                        recognize_pdf_hexidecimal_string,
+                        recognize_pdf_literal_string,
+                        recognize_pdf_array,
+                        recognize_pdf_dictionary,
+                    )),
+                    Vec::new(),
+                    move |mut acc: Vec<PdfObject>, item: PdfObject| {
+                        match item {
+                            PdfObject::Comment => {}
+                            x => {
+                                acc.push(x);
+                            }
+                        }
+                        acc
+                    },
+                ),
+                tuple((pdf_whitespace, tag(b"]"))),
+            ),
+        ),
+        |v: Vec<PdfObject>| PdfObject::Array(v),
+    )(i)
+}
+
+pub fn recognize_pdf_dictionary(i: &[u8]) -> IResult<&[u8], PdfObject> {
+    let result = preceded(
+        pdf_whitespace,
+        delimited(
+            tag(b"<<"),
+            fold_many0(
+                alt((
+                    recognize_pdf_indirect_reference,
+                    recognize_pdf_integer,
+                    recognize_pdf_float,
+                    recognize_pdf_null,
+                    recognize_pdf_boolean,
+                    recognize_pdf_name,
+                    recognize_pdf_comment,
+                    recognize_pdf_hexidecimal_string,
+                    recognize_pdf_literal_string,
+                    recognize_pdf_array,
+                    recognize_pdf_dictionary,
+                )),
+                Vec::new(),
+                move |mut acc: Vec<PdfObject>, item: PdfObject| {
+                    match item {
+                        PdfObject::Comment => {}
+                        x => {
+                            acc.push(x);
+                        }
+                    }
+                    acc
+                },
+            ),
+            tuple((pdf_whitespace, tag(b">>"))),
+        ),
+    )(i);
+    match result {
+        Ok((rest, vec_of_objects_for_namemap)) => match NameMap::of(vec_of_objects_for_namemap) {
+            Ok(Some(namemap)) => Ok((rest, PdfObject::Dictionary(namemap))),
+            _ => Err(nom::Err::Failure((i, nom::error::ErrorKind::Many0))),
         },
-        Err(err) => { Err(err) }
+        Err(err) => Err(err),
+        _ => Err(nom::Err::Failure((i, nom::error::ErrorKind::Many0))),
     }
 }
 
 #[cfg(test)]
 mod tests {
-
     use super::*;
     use nom::AsBytes;
 
@@ -954,7 +1078,7 @@ mod tests {
                 b" ".as_bytes(),
                 PdfObject::IndirectReference {
                     number: 95,
-                    generation: 1
+                    generation: 1,
                 }
             ),
             recognize_pdf_indirect_reference(b"95 1 R ".as_bytes()).unwrap()
@@ -964,7 +1088,7 @@ mod tests {
                 b"\n".as_bytes(),
                 PdfObject::IndirectReference {
                     number: 95,
-                    generation: 100
+                    generation: 100,
                 }
             ),
             recognize_pdf_indirect_reference(b"95 100 R\n".as_bytes()).unwrap()
@@ -974,7 +1098,7 @@ mod tests {
                 b"".as_bytes(),
                 PdfObject::IndirectReference {
                     number: 96,
-                    generation: 100
+                    generation: 100,
                 }
             ),
             recognize_pdf_indirect_reference(b"96 100 R".as_bytes()).unwrap()
@@ -995,4 +1119,256 @@ mod tests {
             recognize_pdf_indirect_reference(b"9 1928356 R".as_bytes())
         );
     }
+
+    macro_rules! recognized_array_object_test {
+        ($($name:ident: $value:expr,)*) => {
+            $(
+                #[test]
+                fn $name() {
+                    let (input, expected) = $value;
+                    match recognize_pdf_array(input.as_bytes()) {
+                        Ok((_b, v)) => {
+                            assert_eq!(v, expected);
+                        },
+                        x => {
+                            println!("fail 16: {:#?}", x );
+                            assert_eq!(16, 0);
+                        }
+                    }
+                }
+            )*
+        }
+    }
+
+    recognized_array_object_test! {
+        raot_1: (b"[1 2 3]",
+            PdfObject::Array( vec![PdfObject::Integer(1), PdfObject::Integer(2),PdfObject::Integer(3) ])),
+        raot_2: (b"[1 2 [3]]",
+            PdfObject::Array( vec![PdfObject::Integer(1), PdfObject::Integer(2),
+                                    PdfObject::Array( vec![PdfObject::Integer(3) ])
+                                    ])),
+        raot_3: (b"[1 2[3]]", PdfObject::Array( vec![PdfObject::Integer(1), PdfObject::Integer(2),
+                                    PdfObject::Array( vec![PdfObject::Integer(3) ])
+                                    ])),
+
+        raot_5: (b"[/1 2[3]]", PdfObject::Array( vec![PdfObject::Name(b"1"[..].to_owned()), PdfObject::Integer(2),
+                                    PdfObject::Array( vec![PdfObject::Integer(3) ])
+                                    ])),
+        raot_6: (b"[/12[3]] ]", PdfObject::Array( vec![PdfObject::Name(b"12"[..].to_owned()),
+                                    PdfObject::Array( vec![PdfObject::Integer(3) ])
+                                    ])),
+        raot_7: (b"[/12 [3]]", PdfObject::Array( vec![PdfObject::Name(b"12"[..].to_owned()),
+                                    PdfObject::Array( vec![PdfObject::Integer(3) ])
+                                    ])),
+
+        raot_8: (b"[       /12 \n1\r\r2    [ ] ]",
+                                PdfObject::Array( vec![PdfObject::Name(b"12"[..].to_owned()),
+                                PdfObject::Integer(1), PdfObject::Integer(2),
+                                    PdfObject::Array( vec![ ])
+                                    ])),
+        raot_8a: (b"[ ]",
+                                PdfObject::Array( vec![])),
+
+        raot_8b: (b"[]",
+                                PdfObject::Array( vec![])),
+
+        raot_9: (b"[1%yo\r %yo\n2%hiya\r\n [3]]",
+                                PdfObject::Array( vec![PdfObject::Integer(1), PdfObject::Integer(2),
+                                    PdfObject::Array( vec![PdfObject::Integer(3) ])
+                                    ])),
+        raot_10: (b"[%yo\r1%yo\r %yo\n2%hiya\r\n [3]]",
+                                PdfObject::Array( vec![PdfObject::Integer(1), PdfObject::Integer(2),
+                                    PdfObject::Array( vec![PdfObject::Integer(3) ])
+                                    ])),
+
+        raot_12: (b"[<09 ab> /yo 1 2 3]",
+                                PdfObject::Array( vec![
+                                    PdfObject::String(b"\x09\xAB"[..].to_owned()),
+                                    PdfObject::Name(b"yo"[..].to_owned()),
+                                    PdfObject::Integer(1), PdfObject::Integer(2),PdfObject::Integer(3)
+                                ])),
+        raot_13: (b"[99 0 R /yo 1 2 3]",
+                                PdfObject::Array( vec![
+                                    PdfObject::IndirectReference { number: 99, generation: 0 },
+                                    PdfObject::Name(b"yo"[..].to_owned()),
+                                    PdfObject::Integer(1), PdfObject::Integer(2),PdfObject::Integer(3)
+                                ])),
+        raot_14: (b"[99 0 R 100 2 R  ]",
+                                PdfObject::Array( vec![
+                                    PdfObject::IndirectReference { number: 99, generation: 0 },
+                                    PdfObject::IndirectReference { number: 100, generation: 2 },
+                                ])),
+
+        raot_11: (b"[(hiya) /yo 1 2 3]",
+                                PdfObject::Array( vec![
+                                    PdfObject::String(b"hiya"[..].to_owned()),
+                                    PdfObject::Name(b"yo"[..].to_owned()),
+                                    PdfObject::Integer(1), PdfObject::Integer(2),PdfObject::Integer(3)
+                                ])),
+       raot_15: (b"[<</a[1 2 3]>> <</b 1 2 R>>]",
+            PdfObject::Array(vec![
+                PdfObject::Dictionary( NameMap::of(vec![
+                    PdfObject::Name( b"a"[..].to_owned()),
+                    PdfObject::Array( vec![PdfObject::Integer(1), PdfObject::Integer(2),PdfObject::Integer(3) ])
+                ]).unwrap().unwrap() ),
+
+                PdfObject::Dictionary( NameMap::of(vec![
+                    PdfObject::Name( b"b"[..].to_owned()),
+                    PdfObject::IndirectReference { number: 1, generation: 2 }
+                ]).unwrap().unwrap() ),
+            ])
+        ),
+
+        raot_16: (b"[/a/b/c]", PdfObject::Array( vec![PdfObject::Name(b"a"[..].to_owned()),
+                                    PdfObject::Name(b"b"[..].to_owned()),
+                                    PdfObject::Name(b"c"[..].to_owned()),
+                                    ])),
+    }
+
+    macro_rules! recognized_dict_object_test {
+        ($($name:ident: $value:expr,)*) => {
+            $(
+                #[test]
+                fn $name() {
+                    let (input, expected) = $value;
+
+                    match recognize_pdf_dictionary(input.as_bytes()) {
+                        Ok((_b, v)) => {
+                            assert_eq!(v, expected);
+                        },
+                        _ => {
+                            assert_eq!(11, 0);
+                        }
+                    }
+
+
+                }
+            )*
+        }
+    }
+
+    recognized_dict_object_test! {
+        rd_0: (b"<</Length 6 0 R/Filter /FlateDecode>>",
+                PdfObject::Dictionary(
+                    NameMap::of(
+                        vec![
+                            PdfObject::Name(b"Length"[..].to_owned()),
+                            PdfObject::IndirectReference { number: 6, generation: 0},
+                            PdfObject::Name(b"Filter"[..].to_owned()),
+                            PdfObject::Name(b"FlateDecode"[..].to_owned()),
+                        ]
+                    ).unwrap().unwrap()
+                )),
+        rd_1: (b"<< >>", PdfObject::Dictionary( NameMap::new() )),
+        rd_2: (b"<</yo%yo\n1>>", PdfObject::Dictionary( NameMap::of(
+                                    vec![
+                                        PdfObject::Name( b"yo"[..].to_owned()),
+                                        PdfObject::Integer( 1 )
+                                    ]
+                                ).unwrap().unwrap() )),
+        rd_3: (b"<</a<</a<</a [1]>>>>>>",
+
+                    PdfObject::Dictionary(
+                        NameMap::of(
+                            vec![
+                                PdfObject::Name( b"a"[..].to_owned()),
+                                PdfObject::Dictionary(
+                                    NameMap::of(
+                                        vec![
+                                            PdfObject::Name( b"a"[..].to_owned()),
+                                            PdfObject::Dictionary(
+                                                NameMap::of(
+                                                    vec![
+                                                        PdfObject::Name( b"a"[..].to_owned()),
+                                                        PdfObject::Array( vec![PdfObject::Integer(1) ])
+                                                    ]
+                                                ).unwrap().unwrap()
+                                            )
+                                        ]
+                                    ).unwrap().unwrap()
+                                )
+                            ]
+                        ).unwrap().unwrap()
+                    )
+
+                ),
+        rd_4: (b"<</a<</a<</a 1>>>>>>",
+                    PdfObject::Dictionary(
+                        NameMap::of(
+                            vec![
+                                PdfObject::Name( b"a"[..].to_owned()),
+                                PdfObject::Dictionary(
+                                    NameMap::of(
+                                        vec![
+                                            PdfObject::Name( b"a"[..].to_owned()),
+                                            PdfObject::Dictionary(
+                                                NameMap::of(
+                                                    vec![
+                                                        PdfObject::Name( b"a"[..].to_owned()),
+                                                        PdfObject::Integer(1)
+                                                    ]
+                                                ).unwrap().unwrap()
+                                            )
+                                        ]
+                                    ).unwrap().unwrap()
+                                )
+                            ]
+                        ).unwrap().unwrap()
+                    )
+        ),
+        rd_5: (b"<</a<</a<abcdef>>>>>",
+                    PdfObject::Dictionary(
+                        NameMap::of(
+                            vec![
+                                PdfObject::Name( b"a"[..].to_owned()),
+                                PdfObject::Dictionary(
+                                    NameMap::of(
+                                        vec![
+                                            PdfObject::Name( b"a"[..].to_owned()),
+                                            PdfObject::String( b"\xAB\xCD\xEF"[..].to_owned() )
+                                        ]
+                                    ).unwrap().unwrap()
+                                )
+                            ]
+                        ).unwrap().unwrap()
+                    )
+
+        ),
+        rd_6: (b"<</a<</a%yo\n<abcdef>>>>>",
+                    PdfObject::Dictionary(
+                        NameMap::of(
+                            vec![
+                                PdfObject::Name( b"a"[..].to_owned()),
+                                PdfObject::Dictionary(
+                                    NameMap::of(
+                                        vec![
+                                            PdfObject::Name( b"a"[..].to_owned()),
+                                            PdfObject::String( b"\xAB\xCD\xEF"[..].to_owned() )
+                                        ]
+                                    ).unwrap().unwrap()
+                                )
+                            ]
+                        ).unwrap().unwrap()
+                    )
+        ),
+    }
+
+    #[test]
+    fn test_recognized_dict_object_errors() {
+        assert_eq!(
+            Err(nom::Err::Failure((
+                b"<</yo%yo\n >>".as_bytes(),
+                nom::error::ErrorKind::Many0
+            ))),
+            recognize_pdf_dictionary(b"<</yo%yo\n >>".as_bytes())
+        );
+        assert_eq!(
+            Err(nom::Err::Failure((
+                b"<</yo>>".as_bytes(),
+                nom::error::ErrorKind::Many0
+            ))),
+            recognize_pdf_dictionary(b"<</yo>>".as_bytes())
+        );
+    }
+
 }
