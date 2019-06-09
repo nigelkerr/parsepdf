@@ -6,6 +6,8 @@ use std::error;
 use std::fmt;
 use std::str;
 use std::str::FromStr;
+use std::convert::TryFrom;
+
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum PdfVersion {
@@ -536,9 +538,31 @@ pub fn recognize_pdf_indirect_reference(i: &[u8]) -> IResult<&[u8], PdfObject> {
         tag(b" R")
         ))(i) {
         Ok((rest, (object_number, _, object_generation, _ ))) => {
+            let number_raw: i64 = bytes_to_i64(object_number);
+            let generation_raw: i64 = bytes_to_i64(object_generation);
+
+            let mut number_cast: u32 = 0;
+            let mut generation_cast: u16 = 0;
+
+            match u32::try_from(number_raw) {
+                Ok(v) => { number_cast = v; }
+                Err(_x) => {
+                    // this isnt right but i dont get readily how to do otherwise neatly
+                    return Err(nom::Err::Failure((i, nom::error::ErrorKind::Digit)))
+                }
+            }
+
+            match u16::try_from(generation_raw) {
+                Ok(v) => { generation_cast = v; }
+                Err(_x) => {
+                    // this isnt right but i dont get readily how to do otherwise neatly
+                    return Err(nom::Err::Failure((i, nom::error::ErrorKind::Digit)))
+                }
+            }
+
             Ok((rest, PdfObject::IndirectReference {
-                number: bytes_to_i64(object_number) as u32,
-                generation: bytes_to_i64(object_generation) as u16,
+                number: number_cast,
+                generation: generation_cast,
             }))
         },
         Err(err) => { Err(err) }
@@ -961,6 +985,14 @@ mod tests {
                 nom::error::ErrorKind::TakeWhile1
             ))),
             recognize_pdf_indirect_reference(b"09 1 R".as_bytes())
+        );
+
+        assert_eq!(
+            Err(nom::Err::Failure((
+                b"9 1928356 R".as_bytes(),
+                nom::error::ErrorKind::Digit
+            ))),
+            recognize_pdf_indirect_reference(b"9 1928356 R".as_bytes())
         );
     }
 }
