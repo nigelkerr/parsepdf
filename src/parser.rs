@@ -311,11 +311,6 @@ fn vec_of_bytes_from_hex_string_literal(input: &[u8]) -> Vec<u8> {
         }
     }
 
-    println!(
-        "vec_of_bytes_from_hex_string_literal: {:#?} to {:#?}",
-        input, result
-    );
-
     result
 }
 
@@ -482,7 +477,6 @@ pub fn recognize_pdf_literal_string(i: &[u8]) -> IResult<&[u8], PdfObject> {
 }
 
 fn recognize_name_hex_encoded_byte(i: &[u8]) -> IResult<&[u8], Vec<u8>> {
-    println!("here A with '{:#?}'", i);
     map(
         preceded(tag(b"#"), take_while_m_n(2usize, 2usize, is_hex_digit)),
         |x: &[u8]| vec_of_bytes_from_hex_string_literal(x),
@@ -517,6 +511,38 @@ pub fn recognize_pdf_name(i: &[u8]) -> IResult<&[u8], PdfObject> {
         ),
         |v: Vec<u8>| PdfObject::Name(v),
     )(i)
+}
+
+fn is_non_zero_digit(chr: u8) -> bool {
+    chr >= 0x31 && chr <= 0x39
+}
+fn recognize_digits_not_beginning_with_zero(i: &[u8]) -> IResult<&[u8], &[u8]> {
+    match tuple((
+        take_while1(is_non_zero_digit),
+        take_while(is_digit),
+        ))(i) {
+        Ok((rest, (start, end))) => {
+            Ok((rest, &i[0..(start.len() + end.len())]))
+        },
+        Err(err) => { Err(err) },
+    }
+}
+
+pub fn recognize_pdf_indirect_reference(i: &[u8]) -> IResult<&[u8], PdfObject> {
+    match tuple((
+        recognize_digits_not_beginning_with_zero,
+        tag(b" "),
+        take_while(is_digit),
+        tag(b" R")
+        ))(i) {
+        Ok((rest, (object_number, _, object_generation, _ ))) => {
+            Ok((rest, PdfObject::IndirectReference {
+                number: bytes_to_i64(object_number) as u32,
+                generation: bytes_to_i64(object_generation) as u16,
+            }))
+        },
+        Err(err) => { Err(err) }
+    }
 }
 
 #[cfg(test)]
@@ -897,4 +923,44 @@ mod tests {
         );
     }
 
+    #[test]
+    fn indirect_reference_test() {
+        assert_eq!(
+            (
+                b" ".as_bytes(),
+                PdfObject::IndirectReference {
+                    number: 95,
+                    generation: 1
+                }
+            ),
+            recognize_pdf_indirect_reference(b"95 1 R ".as_bytes()).unwrap()
+        );
+        assert_eq!(
+            (
+                b"\n".as_bytes(),
+                PdfObject::IndirectReference {
+                    number: 95,
+                    generation: 100
+                }
+            ),
+            recognize_pdf_indirect_reference(b"95 100 R\n".as_bytes()).unwrap()
+        );
+        assert_eq!(
+            (
+                b"".as_bytes(),
+                PdfObject::IndirectReference {
+                    number: 96,
+                    generation: 100
+                }
+            ),
+            recognize_pdf_indirect_reference(b"96 100 R".as_bytes()).unwrap()
+        );
+        assert_eq!(
+            Err(nom::Err::Error((
+                b"09 1 R".as_bytes(),
+                nom::error::ErrorKind::TakeWhile1
+            ))),
+            recognize_pdf_indirect_reference(b"09 1 R".as_bytes())
+        );
+    }
 }
