@@ -1,7 +1,5 @@
 use nom::{
-    branch::alt, bytes::complete::*, character::*, combinator::*, sequence::*,
-    multi::*,
-    IResult,
+    branch::alt, bytes::complete::*, character::*, combinator::*, multi::*, sequence::*, IResult,
 };
 use std::collections::HashMap;
 use std::error;
@@ -266,6 +264,20 @@ pub fn is_pdf_whitespace(chr: u8) -> bool {
 }
 
 #[inline]
+pub fn is_pdf_delimiter(chr: u8) -> bool {
+    (chr == 0x28
+        || chr == 0x29
+        || chr == 0x3c
+        || chr == 0x3e
+        || chr == 0x5b
+        || chr == 0x5d
+        || chr == 0x7b
+        || chr == 0x7d
+        || chr == 0x2f
+        || chr == 0x25)
+}
+
+#[inline]
 fn can_be_in_hexadecimal_string(chr: u8) -> bool {
     is_hex_digit(chr) || is_pdf_whitespace(chr)
 }
@@ -299,6 +311,11 @@ fn vec_of_bytes_from_hex_string_literal(input: &[u8]) -> Vec<u8> {
         }
     }
 
+    println!(
+        "vec_of_bytes_from_hex_string_literal: {:#?} to {:#?}",
+        input, result
+    );
+
     result
 }
 
@@ -306,12 +323,15 @@ pub fn recognize_pdf_hexidecimal_string(i: &[u8]) -> IResult<&[u8], PdfObject> {
     match preceded(
         tag(b"<"),
         terminated(
-            map(take_while(can_be_in_hexadecimal_string), |v| vec_of_bytes_from_hex_string_literal(v)),
-            tag(b">")
-        )
-    )(i) {
-        Ok((rest, v)) => { Ok((rest, PdfObject::String(v)))},
-        Err(err) => { Err(err) },
+            map(take_while(can_be_in_hexadecimal_string), |v| {
+                vec_of_bytes_from_hex_string_literal(v)
+            }),
+            tag(b">"),
+        ),
+    )(i)
+    {
+        Ok((rest, v)) => Ok((rest, PdfObject::String(v))),
+        Err(err) => Err(err),
     }
 }
 
@@ -324,33 +344,42 @@ fn is_oct_high_digit(chr: u8) -> bool {
 }
 
 fn from_octal(i: u8) -> u8 {
-    ( i - 0x30u8 )
+    (i - 0x30u8)
 }
 
 fn three_digit_octal(i: &[u8]) -> IResult<&[u8], u8> {
     match tuple((
-        map(take_while_m_n(1usize, 1usize, is_oct_high_digit), |o: &[u8]| from_octal(o[0]) * 64),
-        map(take_while_m_n(2usize, 2usize, is_oct_digit), |o: &[u8]| (from_octal(o[0]) * 8) + from_octal(o[1]))
-    ))(i) {
-        Ok((rest, (hi, lo))) => { Ok((rest, hi + lo))},
-        Err(err) => { Err(err) },
+        map(
+            take_while_m_n(1usize, 1usize, is_oct_high_digit),
+            |o: &[u8]| from_octal(o[0]) * 64,
+        ),
+        map(
+            take_while_m_n(2usize, 2usize, is_oct_digit),
+            |o: &[u8]| (from_octal(o[0]) * 8) + from_octal(o[1]),
+        ),
+    ))(i)
+    {
+        Ok((rest, (hi, lo))) => Ok((rest, hi + lo)),
+        Err(err) => Err(err),
     }
 }
 
 fn two_digit_octal(i: &[u8]) -> IResult<&[u8], u8> {
-    map(take_while_m_n(2usize, 2usize, is_oct_digit), |o: &[u8]| (from_octal(o[0]) * 8) + from_octal(o[1]))(i)
+    map(
+        take_while_m_n(2usize, 2usize, is_oct_digit),
+        |o: &[u8]| (from_octal(o[0]) * 8) + from_octal(o[1]),
+    )(i)
 }
 
 fn one_digit_octal(i: &[u8]) -> IResult<&[u8], u8> {
-    map(take_while_m_n(1usize, 1usize, is_oct_digit), |o: &[u8]| from_octal(o[0]))(i)
+    map(
+        take_while_m_n(1usize, 1usize, is_oct_digit),
+        |o: &[u8]| from_octal(o[0]),
+    )(i)
 }
 
 fn recognize_octal_value_from_string_literal(i: &[u8]) -> IResult<&[u8], u8> {
-    alt((
-        three_digit_octal,
-        two_digit_octal,
-        one_digit_octal
-        ))(i)
+    alt((three_digit_octal, two_digit_octal, one_digit_octal))(i)
 }
 
 fn recognize_valid_escapes_from_string_literal(i: &[u8]) -> IResult<&[u8], Vec<u8>> {
@@ -366,27 +395,25 @@ fn recognize_valid_escapes_from_string_literal(i: &[u8]) -> IResult<&[u8], Vec<u
             map(tag(b"("), |_| 0x28u8),
             map(tag(b")"), |_| 0x29u8),
             map(tag(b"\\"), |_| 0x5cu8),
-            ))
-        ))(i) {
-        Ok((rest, (_bs, bv))) => { Ok((rest, vec![bv])) },
-        Err(err) => { Err(err) },
+        )),
+    ))(i)
+    {
+        Ok((rest, (_bs, bv))) => Ok((rest, vec![bv])),
+        Err(err) => Err(err),
     }
 }
 
 fn recognize_elidable_line_ending_from_string_literal(i: &[u8]) -> IResult<&[u8], Vec<u8>> {
-    match tuple((
-        tag(b"\\"),
-        recognize_pdf_line_end,
-    ))(i) {
-        Ok((rest, (_,_))) => { Ok((rest, vec![])) },
-        Err(err) => { Err(err) },
+    match tuple((tag(b"\\"), recognize_pdf_line_end))(i) {
+        Ok((rest, (_, _))) => Ok((rest, vec![])),
+        Err(err) => Err(err),
     }
 }
 
 fn recognize_line_ending_from_string_literal(i: &[u8]) -> IResult<&[u8], Vec<u8>> {
     match recognize_pdf_line_end(i) {
-        Ok((rest, _)) => { Ok((rest, vec![0x0au8]))},
-        Err(err) => { Err(err) },
+        Ok((rest, _)) => Ok((rest, vec![0x0au8])),
+        Err(err) => Err(err),
     }
 }
 
@@ -394,34 +421,38 @@ fn is_possible_in_string_literal(chr: u8) -> bool {
     chr != b'\\' && chr != b'(' && chr != b')'
 }
 fn recognize_bytes_possible_in_string_literal(i: &[u8]) -> IResult<&[u8], Vec<u8>> {
-    map(take_while1(is_possible_in_string_literal), |v: &[u8]| v.to_vec())(i)
+    map(take_while1(is_possible_in_string_literal), |v: &[u8]| {
+        v.to_vec()
+    })(i)
 }
 
 fn recognize_empty_parens(i: &[u8]) -> IResult<&[u8], Vec<u8>> {
     match tag("()")(i) {
-        Ok((rest, empty_parens)) => {
-            return Ok((rest, empty_parens.to_vec()))
-        },
-        Err(err) => { Err(err) },
+        Ok((rest, empty_parens)) => return Ok((rest, empty_parens.to_vec())),
+        Err(err) => Err(err),
     }
 }
 
-fn recognize_recursive_balanced_parenthetical_in_string_literal(i: &[u8]) -> IResult<&[u8], Vec<u8>> {
-    match preceded(tag(b"("),
-            terminated(recognize_string_literal_body, tag(b")")))(i) {
+fn recognize_recursive_balanced_parenthetical_in_string_literal(
+    i: &[u8],
+) -> IResult<&[u8], Vec<u8>> {
+    match preceded(
+        tag(b"("),
+        terminated(recognize_string_literal_body, tag(b")")),
+    )(i)
+    {
         Ok((rest, body)) => {
             let mut result_vec: Vec<u8> = Vec::new();
             result_vec.extend_from_slice(b"(");
             result_vec.extend_from_slice(&body);
             result_vec.extend_from_slice(b")");
             Ok((rest, result_vec))
-        },
-        Err(err) => { Err(err) },
+        }
+        Err(err) => Err(err),
     }
 }
 
 fn recognize_string_literal_body(i: &[u8]) -> IResult<&[u8], Vec<u8>> {
-
     fold_many0(
         alt((
             recognize_valid_escapes_from_string_literal,
@@ -430,23 +461,62 @@ fn recognize_string_literal_body(i: &[u8]) -> IResult<&[u8], Vec<u8>> {
             recognize_empty_parens,
             recognize_recursive_balanced_parenthetical_in_string_literal,
             recognize_bytes_possible_in_string_literal,
-            )),
+        )),
         Vec::new(),
         |mut acc: Vec<u8>, item: Vec<u8>| {
             acc.extend(item);
             acc
-        }
+        },
     )(i)
 }
 
 pub fn recognize_pdf_literal_string(i: &[u8]) -> IResult<&[u8], PdfObject> {
     match preceded(
         tag(b"("),
-        terminated(recognize_string_literal_body, tag(b")"))
-    )(i) {
-        Ok((rest, v)) => { Ok((rest, PdfObject::String(v))) },
-        Err(err) => { Err(err) },
+        terminated(recognize_string_literal_body, tag(b")")),
+    )(i)
+    {
+        Ok((rest, v)) => Ok((rest, PdfObject::String(v))),
+        Err(err) => Err(err),
     }
+}
+
+fn recognize_name_hex_encoded_byte(i: &[u8]) -> IResult<&[u8], Vec<u8>> {
+    println!("here A with '{:#?}'", i);
+    map(
+        preceded(tag(b"#"), take_while_m_n(2usize, 2usize, is_hex_digit)),
+        |x: &[u8]| vec_of_bytes_from_hex_string_literal(x),
+    )(i)
+}
+
+fn is_possible_in_name_unencoded(chr: u8) -> bool {
+    chr != b'#' && !is_pdf_whitespace(chr) && !is_pdf_delimiter(chr) && (chr >= b'!' && chr <= b'~')
+}
+
+fn recognize_name_unencoded_byte(i: &[u8]) -> IResult<&[u8], Vec<u8>> {
+    map(take_while1(is_possible_in_name_unencoded), |u: &[u8]| {
+        u.to_vec()
+    })(i)
+}
+
+pub fn recognize_pdf_name(i: &[u8]) -> IResult<&[u8], PdfObject> {
+    map(
+        preceded(
+            tag(b"/"),
+            fold_many1(
+                alt((
+                    recognize_name_hex_encoded_byte,
+                    recognize_name_unencoded_byte,
+                )),
+                Vec::new(),
+                |mut acc: Vec<u8>, item: Vec<u8>| {
+                    acc.extend(item);
+                    acc
+                },
+            ),
+        ),
+        |v: Vec<u8>| PdfObject::Name(v),
+    )(i)
 }
 
 #[cfg(test)]
@@ -655,11 +725,13 @@ mod tests {
         f10: (b"-0.",0.0),
     }
 
-
     #[test]
     fn hexadecimal_string_test() {
         assert_eq!(
-            Err(nom::Err::Error((b"->".as_bytes(), nom::error::ErrorKind::Tag))),
+            Err(nom::Err::Error((
+                b"->".as_bytes(),
+                nom::error::ErrorKind::Tag
+            ))),
             recognize_pdf_hexidecimal_string(b"<a->")
         );
     }
@@ -692,13 +764,26 @@ mod tests {
 
     #[test]
     fn octal_inside_string_literal_test() {
-        assert_eq!(Ok((b"9".as_bytes(), 32u8)), recognize_octal_value_from_string_literal(b"409"));
-        assert_eq!(Ok((b"4".as_bytes(), 36u8)), recognize_octal_value_from_string_literal(b"444"));
-        assert_eq!(Ok((b"8".as_bytes(), 1u8)), recognize_octal_value_from_string_literal(b"18"));
-        assert_eq!(Err(nom::Err::Error((b"999".as_bytes(), nom::error::ErrorKind::TakeWhileMN))), recognize_octal_value_from_string_literal(b"999"));
+        assert_eq!(
+            Ok((b"9".as_bytes(), 32u8)),
+            recognize_octal_value_from_string_literal(b"409")
+        );
+        assert_eq!(
+            Ok((b"4".as_bytes(), 36u8)),
+            recognize_octal_value_from_string_literal(b"444")
+        );
+        assert_eq!(
+            Ok((b"8".as_bytes(), 1u8)),
+            recognize_octal_value_from_string_literal(b"18")
+        );
+        assert_eq!(
+            Err(nom::Err::Error((
+                b"999".as_bytes(),
+                nom::error::ErrorKind::TakeWhileMN
+            ))),
+            recognize_octal_value_from_string_literal(b"999")
+        );
     }
-
-
 
     macro_rules! tlsr {
         ($($name:ident: $value:expr,)*) => {
@@ -749,4 +834,67 @@ mod tests {
         tlsr_g: (b"(\\53)", b"+"),
         tlsr_h: (b"(\\533)", b"+3"),
     }
+
+    macro_rules! name_object_result_test {
+        ($($name:ident: $value:expr,)*) => {
+            $(
+                #[test]
+                fn $name() {
+                    let (input, expected) = $value;
+                    match recognize_pdf_name(input.as_bytes()) {
+                        Ok((_b, PdfObject::Name( v ))) => {
+                            assert_eq!(expected[..].to_owned(), v);
+                        },
+                        x => {
+                            println!("wut: {:#?}", x);
+                            assert_eq!(15, 0);
+                        }
+                    }
+                }
+            )*
+        }
+    }
+
+    name_object_result_test! {
+        nort_1: (b"/Name1",b"Name1"),
+        nort_2: (b"/ASomewhatLongerName",b"ASomewhatLongerName"),
+        nort_3:(b"/A;Name_With-Various***Characters?",b"A;Name_With-Various***Characters?"),
+        nort_5: (b"/1.2",b"1.2"),
+        nort_6: (b"/$$",b"$$"),
+        nort_7: (b"/@pattern",b"@pattern"),
+        nort_8: (b"/.notdef",b".notdef"),
+        nort_9: (b"/Lime#20Green",b"Lime Green"),
+        nort_10: (b"/paired#28#29parentheses",b"paired()parentheses"),
+        nort_11: (b"/The_Key_of_F#23_Minor",b"The_Key_of_F#_Minor"),
+        nort_12: (b"/A#42",b"AB"),
+        nort_13: (b"/#2F",b"/"),
+        nort_15: (b"/abcd[",b"abcd"),
+        nort_16: (b"/this that", b"this"),
+    }
+
+    #[test]
+    fn name_fail_cases() {
+        assert_eq!(
+            Err(nom::Err::Error((
+                b"".as_bytes(),
+                nom::error::ErrorKind::Many1
+            ))),
+            recognize_pdf_name(b"/")
+        );
+        assert_eq!(
+            Err(nom::Err::Error((
+                b" ".as_bytes(),
+                nom::error::ErrorKind::Many1
+            ))),
+            recognize_pdf_name(b"/ ")
+        );
+        assert_eq!(
+            Err(nom::Err::Error((
+                b"/".as_bytes(),
+                nom::error::ErrorKind::Many1
+            ))),
+            recognize_pdf_name(b"//")
+        );
+    }
+
 }

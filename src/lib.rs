@@ -15,10 +15,7 @@ pub use crate::parser::*;
 
 #[cfg(test)]
 mod tests {
-    use nom::{
-        bytes, character, error::ErrorKind, Err,
-        IResult, Needed,
-    };
+    use nom::{bytes, character, error::ErrorKind, Err, IResult, Needed};
 
     fn take_4_streaming(i: &[u8]) -> IResult<&[u8], &[u8]> {
         bytes::streaming::take(4u8)(i)
