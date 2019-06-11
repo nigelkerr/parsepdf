@@ -135,6 +135,10 @@ impl NameMap {
         }
     }
 
+    pub fn get2(&self, k: &[u8]) -> Result<Option<PdfObject>, NameMapError> {
+        self.get(PdfObject::Name(k.to_owned()))
+    }
+
     pub fn names(&self) -> Vec<PdfObject> {
         self.map
             .keys()
@@ -694,6 +698,44 @@ pub fn recognize_pdf_dictionary(i: &[u8]) -> IResult<&[u8], PdfObject> {
     }
 }
 
+
+
+fn recognize_stream(i: &[u8], length: i64) -> IResult<&[u8], Vec<u8>> {
+    // we have consumed the dictionary, our goal is to find stream,
+    // the zero or more stream bytes, and endstream
+
+    // if we have a positive length to guide us, use that.
+
+    // if we dont, do the silly seek forward looking for the first
+    // occurrence of the endstream sequence.
+}
+
+pub fn recognize_pdf_stream(i: &[u8]) -> IResult<&[u8], PdfObject> {
+
+    match recognize_pdf_dictionary(i) {
+        Ok((rest, PdfObject::Dictionary(dictionary))) => {
+
+            match dictionary.get2(b"Length") {
+                Ok(Some(PdfObject::Integer(length))) => {
+                    PdfObject::Stream(dictionary, recognize_stream(rest, length))
+                },
+                Ok(Some(PdfObject::IndirectReference {number: _n, generation: _g})) => {
+                    PdfObject::Stream(dictionary, recognize_stream(rest, -1))
+                },
+                _ => {
+                    Err(nom::Err::Failure((i, nom::error::ErrorKind::Many0)))
+                },
+            }
+
+        },
+        Err(err) => { Err(err) }
+        _ => {
+            Err(nom::Err::Failure((i, nom::error::ErrorKind::Many0)))
+        }
+    }
+
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -758,11 +800,29 @@ mod tests {
             }
         }
 
+
         match NameMap::of(vec![
             PdfObject::Name(b"A"[..].to_owned()),
             PdfObject::Name(b"B"[..].to_owned()),
         ]) {
             Ok(Some(n)) => match n.get(PdfObject::Name(b"A"[..].to_owned())) {
+                Ok(Some(x)) => {
+                    assert_eq!(x, PdfObject::Name(b"B"[..].to_owned()));
+                }
+                _ => {
+                    assert_eq!(4, 0);
+                }
+            },
+            _ => {
+                assert_eq!(5, 0);
+            }
+        }
+
+        match NameMap::of(vec![
+            PdfObject::Name(b"A"[..].to_owned()),
+            PdfObject::Name(b"B"[..].to_owned()),
+        ]) {
+            Ok(Some(n)) => match n.get2(b"A") {
                 Ok(Some(x)) => {
                     assert_eq!(x, PdfObject::Name(b"B"[..].to_owned()));
                 }
