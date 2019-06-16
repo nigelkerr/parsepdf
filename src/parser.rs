@@ -1569,20 +1569,44 @@ mod tests {
     }
 
     recognized_stream_object_test! {
-//        rsot_1: (b"<< >>", PdfObject::Dictionary( NameMap::new() )), // because if you dont have a Length you're just a dictionary
-//        rsot_2: (b"<< /Length 20 >>\nstream\n01234567890123456789\nendstream\n",
-//            PdfObject::Stream(
-//                NameMap::of( vec![PdfObject::Name(b"Length"[..].to_owned()), PdfObject::Integer(20)] ).unwrap().unwrap(),
-//                b"01234567890123456789"[..].to_owned()
-//            )
-//        ),
-//        rsot_3: (b"<< /Length 20 >>\r\nstream\r\n01234567890123456789\r\nendstream\r\n",
-//            PdfObject::Stream(
-//                NameMap::of( vec![PdfObject::Name(b"Length"[..].to_owned()), PdfObject::Integer(20)] ).unwrap().unwrap(),
-//                b"01234567890123456789"[..].to_owned()
-//            )
-//        ),
-        rsot_4: (b"<</Length 10 0 R/Filter /FlateDecode>>\r\nstream\r\n01234567890123456789\r\nendstream\r\n",
+        rsot_1: (b"<< >>", PdfObject::Dictionary( NameMap::new() )), // because if you dont have a Length you're just a dictionary
+        rsot_2: (b"<< /Length 20 >>\nstream\n01234567890123456789\nendstream\n",
+            PdfObject::Stream(
+                NameMap::of( vec![PdfObject::Name(b"Length"[..].to_owned()), PdfObject::Integer(20)] ).unwrap().unwrap(),
+                b"01234567890123456789"[..].to_owned()
+            )
+        ),
+        rsot_3: (b"<< /Length 20 >>\r\nstream\r\n01234567890123456789\r\nendstream\r\n",
+            PdfObject::Stream(
+                NameMap::of( vec![PdfObject::Name(b"Length"[..].to_owned()), PdfObject::Integer(20)] ).unwrap().unwrap(),
+                b"01234567890123456789"[..].to_owned()
+            )
+        ),
+        rsot_4: (b"<</Length 10 0 R/Filter /FlateDecode>>\nstream\n01234567890123456789\nendstream\n",
+            PdfObject::Stream(
+                NameMap::of(
+                    vec![
+                        PdfObject::Name(b"Length"[..].to_owned()),
+                        PdfObject::IndirectReference{ number: 10, generation: 0},
+                        PdfObject::Name(b"Filter"[..].to_owned()),
+                        PdfObject::Name(b"FlateDecode"[..].to_owned()),
+                    ] ).unwrap().unwrap(),
+                b"01234567890123456789"[..].to_owned()
+            )
+        ),
+        rsot_4a: (b"<</Length 10 0 R/Filter /FlateDecode>>\nstream\r\n01234567890123456789\r\nendstream\n",
+            PdfObject::Stream(
+                NameMap::of(
+                    vec![
+                        PdfObject::Name(b"Length"[..].to_owned()),
+                        PdfObject::IndirectReference{ number: 10, generation: 0},
+                        PdfObject::Name(b"Filter"[..].to_owned()),
+                        PdfObject::Name(b"FlateDecode"[..].to_owned()),
+                    ] ).unwrap().unwrap(),
+                b"01234567890123456789"[..].to_owned()
+            )
+        ),
+        rsot_4b: (b"<</Length 10 0 R/Filter /FlateDecode>>\nstream\r\n01234567890123456789\r\n\r\nendstream\n",
             PdfObject::Stream(
                 NameMap::of(
                     vec![
@@ -1594,7 +1618,7 @@ mod tests {
                 b"01234567890123456789\r\n"[..].to_owned()
             )
         ),
-        rsot_5: (b"<</Length 10 0 R/Filter /FlateDecode>>\r\nstream\r\n0123456\n7890123456789endstream\r\n",
+        rsot_5: (b"<</Length 10 0 R/Filter /FlateDecode>>\r\nstream\r\n0123456\n7890123456789\r\nendstream\r\n",
             PdfObject::Stream(
                 NameMap::of(
                     vec![
