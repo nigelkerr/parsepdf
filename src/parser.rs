@@ -1,6 +1,4 @@
-use nom::{
-    branch::alt, bytes::complete::*, character::*, combinator::*, multi::*, sequence::*, IResult,
-};
+use nom::{branch::alt, bytes::complete::*, character::*, combinator::*, multi::*, sequence::*, IResult, AsBytes};
 use std::collections::HashMap;
 use std::convert::TryFrom;
 use std::error;
@@ -171,7 +169,9 @@ pub fn recognize_pdf_line_end(i: &[u8]) -> IResult<&[u8], &[u8]> {
     alt((tag(b"\r\n"), tag(b"\n"), tag(b"\r")))(i)
 }
 
-/// recognize a PDF ccomment as such, even though we will just discard them.
+/// recognize a PDF ccomment as such, even though we will just discard them.,
+/// so that we have a PDF object to consume and return along with other
+/// PDF objects from different combinators.
 pub fn recognize_pdf_comment(i: &[u8]) -> IResult<&[u8], PdfObject> {
     map(
         preceded(
@@ -217,7 +217,7 @@ pub fn recognize_pdf_boolean(i: &[u8]) -> IResult<&[u8], PdfObject> {
     )(i)
 }
 
-// because we trust.
+// because we trust.  this irks me.
 fn bytes_to_i64(v: &[u8]) -> i64 {
     FromStr::from_str(str::from_utf8(v).unwrap()).unwrap()
 }
@@ -245,7 +245,7 @@ fn two_byte_slices_of_digits_to_f64(pre_digits: &[u8], post_digits: &[u8]) -> f6
     return bytes_to_f64(&full_number);
 }
 
-// because we trust.
+// because we trust.  this irks me.
 fn bytes_to_f64(v: &[u8]) -> f64 {
     FromStr::from_str(str::from_utf8(v).unwrap()).unwrap()
 }
@@ -323,7 +323,7 @@ fn from_hex(chr: u8) -> u8 {
     }
 }
 
-// because we trust
+// because we trust.  this irks me.
 fn vec_of_bytes_from_hex_string_literal(input: &[u8]) -> Vec<u8> {
     let mut result: Vec<u8> = Vec::new();
     let filtered: Vec<u8> = input
@@ -590,7 +590,8 @@ pub fn recognize_pdf_indirect_reference(i: &[u8]) -> IResult<&[u8], PdfObject> {
                     number_cast = v;
                 }
                 Err(_x) => {
-                    // this isnt right but i dont get readily how to do otherwise neatly
+                    // this isnt right but i dont get readily how to do otherwise neatly;
+                    // *PDF* validity and *combinator* function need to return Err() both.
                     return Err(nom::Err::Failure((i, nom::error::ErrorKind::Digit)));
                 }
             }
@@ -704,10 +705,71 @@ fn recognize_stream(i: &[u8], length: i64) -> IResult<&[u8], Vec<u8>> {
     // we have consumed the dictionary, our goal is to find stream,
     // the zero or more stream bytes, and endstream
 
-    // if we have a positive length to guide us, use that.
+    // if we have a greater than 0 length to guide us, use that.
 
-    // if we dont, do the silly seek forward looking for the first
+    // if we have a zero length, do our best to figure out if we have
+    // two line-ends between stream and endstream or not
+
+
+
+    if length > 0 {
+        match preceded(
+            pdf_whitespace,
+            tuple((
+                alt((tag(b"stream\n"), tag(b"stream\r\n"))),
+                take(length as usize),
+                recognize_pdf_line_end,
+                tag(b"endstream"),
+                pdf_whitespace
+            )))(i) {
+
+            Ok((rest, (_stream, stream_bytes, _line_end, _endstream, _ws))) => {
+                return Ok((rest, stream_bytes.to_vec()))
+            },
+            Err(err) => { return Err(err) }
+        }
+    }
+
+    if length == 0 {
+        match preceded(
+            pdf_whitespace,
+            tuple((
+                alt((tag(b"stream\n"), tag(b"stream\r\n"))),
+                opt(recognize_pdf_line_end),
+                tag(b"endstream"),
+                pdf_whitespace
+            )))(i) {
+
+            Ok((rest, (_stream, _apparently_opt_line_end, _endstream, _ws))) => {
+                return Ok((rest, vec![]))
+            },
+            Err(err) => { return Err(err) }
+        }
+    }
+
+    // if we less than zero, do the silly seek forward looking for the first
     // occurrence of the endstream sequence.
+
+    match preceded(
+        pdf_whitespace,
+        tuple((
+            alt((tag(b"stream\n"), tag(b"stream\r\n"))),
+
+            alt((
+                take_until(b"\r\nendstream".as_bytes()),
+                take_until(b"\rendstream".as_bytes()),
+                take_until(b"\nendstream".as_bytes()),
+                )),
+            alt((
+                tag(b"\r\nendstream"), tag(b"\rendstream"), tag(b"\nendstream")
+                )),
+            pdf_whitespace
+            )))(i) {
+        Ok((rest, (_stream, stream_bytes, _line_end_and_endstream, _ws))) => {
+            Ok((rest, stream_bytes.to_vec()))
+        },
+        Err(err) => { Err(err) },
+    }
 }
 
 pub fn recognize_pdf_stream(i: &[u8]) -> IResult<&[u8], PdfObject> {
@@ -717,11 +779,30 @@ pub fn recognize_pdf_stream(i: &[u8]) -> IResult<&[u8], PdfObject> {
 
             match dictionary.get2(b"Length") {
                 Ok(Some(PdfObject::Integer(length))) => {
-                    PdfObject::Stream(dictionary, recognize_stream(rest, length))
+                    match recognize_stream(rest, length) {
+                        Ok((rest2, stream_bytes_vec)) => {
+                            Ok((rest2, PdfObject::Stream(dictionary, stream_bytes_vec)))
+
+                        }
+                        Err(err) => {
+                            Err(err)
+                        }
+                    }
                 },
                 Ok(Some(PdfObject::IndirectReference {number: _n, generation: _g})) => {
-                    PdfObject::Stream(dictionary, recognize_stream(rest, -1))
+                    match recognize_stream(rest, -1) {
+                        Ok((rest2, stream_bytes_vec)) => {
+                            Ok((rest2, PdfObject::Stream(dictionary, stream_bytes_vec)))
+
+                        }
+                        Err(err) => {
+                            Err(err)
+                        }
+                    }
                 },
+                Ok(None) => {
+                    Ok((rest, PdfObject::Dictionary(dictionary)))
+                }
                 _ => {
                     Err(nom::Err::Failure((i, nom::error::ErrorKind::Many0)))
                 },
@@ -1430,6 +1511,101 @@ mod tests {
             ))),
             recognize_pdf_dictionary(b"<</yo>>".as_bytes())
         );
+    }
+
+
+
+    #[test]
+    fn test_recognize_stream() {
+
+
+        // the indication from samples in the spec ( § 8.9.5.4 Alternate Images )
+        // suggests that there is not necessarily an additional EOL in this instance.
+        assert_eq!(
+            recognize_stream(b" stream\r\nendstream", 0),
+            Ok((b"".as_bytes(), vec![]))
+        );
+
+        assert_eq!(
+            recognize_stream(b" stream\n__--__--__--__--\r\nendstream  ", 16),
+            Ok((b"".as_bytes(), b"__--__--__--__--"[..].to_owned()))
+        );
+
+        assert_eq!(
+            recognize_stream(b" stream\n__--__--__--__--\nendstream  ", 16),
+            Ok((b"".as_bytes(), b"__--__--__--__--"[..].to_owned()))
+        );
+
+        assert_eq!(
+            recognize_stream(b" stream\n__--__--", 16),
+            Err(nom::Err::Error((b"__--__--".as_bytes(), nom::error::ErrorKind::Eof)))
+        );
+
+        assert_eq!(
+            recognize_stream(b" stream\n__--__--__--__--", 16),
+            Err(nom::Err::Error((b"".as_bytes(), nom::error::ErrorKind::Tag)))
+        );
+    }
+
+    macro_rules! recognized_stream_object_test {
+        ($($name:ident: $value:expr,)*) => {
+            $(
+                #[test]
+                fn $name() {
+                    let (input, expected) = $value;
+                    match recognize_pdf_stream(input.as_bytes()) {
+                        Ok((_rest, x)) => {
+                            assert_eq!(x, expected);
+
+                        },
+                        x => {
+                            println!("err is: {:?}", x);
+                            assert_eq!(150, 0);
+                        }
+                    }
+                }
+            )*
+        }
+    }
+
+    recognized_stream_object_test! {
+//        rsot_1: (b"<< >>", PdfObject::Dictionary( NameMap::new() )), // because if you dont have a Length you're just a dictionary
+//        rsot_2: (b"<< /Length 20 >>\nstream\n01234567890123456789\nendstream\n",
+//            PdfObject::Stream(
+//                NameMap::of( vec![PdfObject::Name(b"Length"[..].to_owned()), PdfObject::Integer(20)] ).unwrap().unwrap(),
+//                b"01234567890123456789"[..].to_owned()
+//            )
+//        ),
+//        rsot_3: (b"<< /Length 20 >>\r\nstream\r\n01234567890123456789\r\nendstream\r\n",
+//            PdfObject::Stream(
+//                NameMap::of( vec![PdfObject::Name(b"Length"[..].to_owned()), PdfObject::Integer(20)] ).unwrap().unwrap(),
+//                b"01234567890123456789"[..].to_owned()
+//            )
+//        ),
+        rsot_4: (b"<</Length 10 0 R/Filter /FlateDecode>>\r\nstream\r\n01234567890123456789\r\nendstream\r\n",
+            PdfObject::Stream(
+                NameMap::of(
+                    vec![
+                        PdfObject::Name(b"Length"[..].to_owned()),
+                        PdfObject::IndirectReference{ number: 10, generation: 0},
+                        PdfObject::Name(b"Filter"[..].to_owned()),
+                        PdfObject::Name(b"FlateDecode"[..].to_owned()),
+                    ] ).unwrap().unwrap(),
+                b"01234567890123456789\r\n"[..].to_owned()
+            )
+        ),
+        rsot_5: (b"<</Length 10 0 R/Filter /FlateDecode>>\r\nstream\r\n0123456\n7890123456789endstream\r\n",
+            PdfObject::Stream(
+                NameMap::of(
+                    vec![
+                        PdfObject::Name(b"Length"[..].to_owned()),
+                        PdfObject::IndirectReference{ number: 10, generation: 0},
+                        PdfObject::Name(b"Filter"[..].to_owned()),
+                        PdfObject::Name(b"FlateDecode"[..].to_owned()),
+                    ] ).unwrap().unwrap(),
+                b"0123456\n7890123456789"[..].to_owned()
+            )
+        ),
     }
 
 }
