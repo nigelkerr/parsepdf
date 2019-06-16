@@ -1,17 +1,12 @@
 [package]
 name = "parsepdf"
-version = "0.1.5"
+version = "0.2.0"
 authors = ["Nigel Kerr <nigel.kerr@gmail.com>"]
+edition = "2018"
 
 [dependencies]
-approx="0.1.1"
-lzw = "0.10.0"
-inflate = "0.4.2"
-memmap = "0.6.2"
+approx = "0.3.2"
 
 [dependencies.nom]
-version = "^4.0"
-features = ["verbose-errors", "regexp"]
-
-[dependencies.regex]
-version = "^0.2"
+version = "5.0.0-beta2"
+features = ["regexp"]
