@@ -9,4 +9,3 @@ approx = "0.3.2"
 
 [dependencies.nom]
 version = "5.0.0-beta2"
-features = ["regexp"]

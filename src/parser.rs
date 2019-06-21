@@ -1,10 +1,11 @@
 use nom::{branch::alt, bytes::complete::*, character::*, combinator::*, multi::*, sequence::*, IResult, AsBytes};
-use std::collections::HashMap;
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::convert::TryFrom;
 use std::error;
 use std::fmt;
 use std::str;
 use std::str::FromStr;
+use nom::character::complete::digit1;
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum PdfVersion {
@@ -152,6 +153,62 @@ impl NameMap {
     }
 }
 
+pub struct XrefTable {
+    object_offsets: BTreeMap<u32, usize>,
+    object_generations: BTreeMap<u32, u16>,
+    free_objects: BTreeSet<u32>,
+    offsets_to_objects: BTreeMap<usize, u32>,
+}
+
+impl XrefTable {
+    pub fn new() -> XrefTable {
+        XrefTable {
+            object_offsets: BTreeMap::new(),
+            object_generations: BTreeMap::new(),
+            free_objects: BTreeSet::new(),
+            offsets_to_objects: BTreeMap::new(),
+        }
+    }
+
+    pub fn add_in_use(&mut self, number: u32, generation: u16, offset: usize) {
+        self.object_generations.insert(number, generation);
+        self.object_offsets.insert(number, offset);
+        self.offsets_to_objects.insert(offset, number);
+    }
+    pub fn add_free(&mut self, number: u32, generation: u16) {
+        self.object_generations.insert(number, generation);
+        self.free_objects.insert(number);
+    }
+
+    pub fn count_in_use(&self) -> usize {
+        self.object_offsets.len()
+    }
+    pub fn count_free(&self) -> usize {
+        self.free_objects.len()
+    }
+
+    pub fn in_use(&self) -> Vec<u32> {
+        self.object_offsets.keys().cloned().collect()
+    }
+    pub fn free(&self) -> Vec<u32> {
+        self.free_objects.iter().cloned().collect()
+    }
+
+    pub fn generation_of(&self, number: u32) -> Option<u16> {
+        match self.object_generations.get(&number) {
+            Some(ref x) => Some((*x).clone()),
+            _ => None,
+        }
+    }
+    pub fn offset_of(&self, number: u32) -> Option<usize> {
+        match self.object_offsets.get(&number) {
+            Some(ref x) => Some((*x).clone()),
+            _ => None,
+        }
+    }
+}
+
+
 pub fn recognize_pdf_version(i: &[u8]) -> IResult<&[u8], PdfVersion> {
     preceded(
         tag(b"%PDF-"),
@@ -229,6 +286,64 @@ fn bytes_to_i64(v: &[u8]) -> i64 {
     FromStr::from_str(str::from_utf8(v).unwrap()).unwrap()
 }
 
+// because we trust.  this irks me.
+fn bytes_to_f64(v: &[u8]) -> f64 {
+    FromStr::from_str(str::from_utf8(v).unwrap()).unwrap()
+}
+
+
+macro_rules! digits_to {
+    ($T:ident, $name:ident) => {
+        pub fn $name(i: &[u8]) -> IResult<&[u8], $T> {
+            match digit1(i) {
+            Ok((rest, digits)) => {
+                let parsed_number = bytes_to_i64(digits);
+                match $T::try_from(parsed_number) {
+                    Ok(v) => {
+                        Ok((rest, v))
+                    }
+                    Err(_x) => {
+                        Err(nom::Err::Failure((i, nom::error::ErrorKind::TooLarge)))
+                    }
+                }
+            },
+            Err(err) => { Err(err) },
+        }
+    }
+}}
+
+digits_to!(u8, digits_to_u8);
+digits_to!(u16, digits_to_u16);
+digits_to!(u32, digits_to_u32);
+digits_to!(u64, digits_to_u64);
+digits_to!(usize, digits_to_usize);
+
+macro_rules! not_zero_padded_digits_to {
+    ($T:ident, $name:ident) => {
+        pub fn $name(i: &[u8]) -> IResult<&[u8], $T> {
+            match recognize_digits_not_beginning_with_zero(i) {
+            Ok((rest, digits)) => {
+                let parsed_number = bytes_to_i64(digits);
+                match $T::try_from(parsed_number) {
+                    Ok(v) => {
+                        Ok((rest, v))
+                    }
+                    Err(_x) => {
+                        Err(nom::Err::Failure((i, nom::error::ErrorKind::TooLarge)))
+                    }
+                }
+            },
+            Err(err) => { Err(err) },
+        }
+    }
+}}
+
+not_zero_padded_digits_to!(u8, not_zero_padded_digits_to_u8);
+not_zero_padded_digits_to!(u16, not_zero_padded_digits_to_u16);
+not_zero_padded_digits_to!(u32, not_zero_padded_digits_to_u32);
+not_zero_padded_digits_to!(u64, not_zero_padded_digits_to_u64);
+not_zero_padded_digits_to!(usize, not_zero_padded_digits_to_usize);
+
 pub fn recognize_pdf_integer(i: &[u8]) -> IResult<&[u8], PdfObject> {
     match preceded(
         pdf_whitespace,
@@ -252,10 +367,7 @@ fn two_byte_slices_of_digits_to_f64(pre_digits: &[u8], post_digits: &[u8]) -> f6
     return bytes_to_f64(&full_number);
 }
 
-// because we trust.  this irks me.
-fn bytes_to_f64(v: &[u8]) -> f64 {
-    FromStr::from_str(str::from_utf8(v).unwrap()).unwrap()
-}
+
 
 /// Get a float per the wierd PDF rules that i dont trust std library functions
 /// with for some reason.
@@ -319,7 +431,7 @@ fn can_be_in_hexadecimal_string(chr: u8) -> bool {
 }
 
 #[inline]
-fn from_hex(chr: u8) -> u8 {
+fn hex_digit_to_byte_value(chr: u8) -> u8 {
     // heh
     if chr >= 0x30 && chr <= 0x39 {
         chr - 0x30
@@ -336,7 +448,7 @@ fn vec_of_bytes_from_hex_string_literal(input: &[u8]) -> Vec<u8> {
     let filtered: Vec<u8> = input
         .iter()
         .filter(|&x| is_hex_digit(*x))
-        .map(|&x| from_hex(x))
+        .map(|&x| hex_digit_to_byte_value(x))
         .collect();
 
     for pair in filtered.chunks(2) {
@@ -578,46 +690,20 @@ pub fn recognize_pdf_indirect_reference(i: &[u8]) -> IResult<&[u8], PdfObject> {
     match preceded(
         pdf_whitespace,
         tuple((
-            recognize_digits_not_beginning_with_zero,
+            not_zero_padded_digits_to_u32,
             tag(b" "),
-            take_while(is_digit),
+            digits_to_u16,
             tag(b" R"),
         )),
     )(i)
         {
             Ok((rest, (object_number, _, object_generation, _))) => {
-                let number_raw: i64 = bytes_to_i64(object_number);
-                let generation_raw: i64 = bytes_to_i64(object_generation);
-
-                let mut number_cast: u32 = 0;
-                let mut generation_cast: u16 = 0;
-
-                match u32::try_from(number_raw) {
-                    Ok(v) => {
-                        number_cast = v;
-                    }
-                    Err(_x) => {
-                        // this isnt right but i dont get readily how to do otherwise neatly;
-                        // *PDF* validity and *combinator* function need to return Err() both.
-                        return Err(nom::Err::Failure((i, nom::error::ErrorKind::Digit)));
-                    }
-                }
-
-                match u16::try_from(generation_raw) {
-                    Ok(v) => {
-                        generation_cast = v;
-                    }
-                    Err(_x) => {
-                        // this isnt right but i dont get readily how to do otherwise neatly
-                        return Err(nom::Err::Failure((i, nom::error::ErrorKind::Digit)));
-                    }
-                }
 
                 Ok((
                     rest,
                     PdfObject::IndirectReference {
-                        number: number_cast,
-                        generation: generation_cast,
+                        number: object_number,
+                        generation: object_generation,
                     },
                 ))
             }
@@ -715,8 +801,6 @@ fn recognize_stream(i: &[u8], length: i64) -> IResult<&[u8], Vec<u8>> {
 
     // if we have a zero length, do our best to figure out if we have
     // two line-ends between stream and endstream or not
-
-
 
     if length > 0 {
         match preceded(
@@ -819,9 +903,9 @@ pub fn recognize_pdf_indirect_object(i: &[u8]) -> IResult<&[u8], PdfIndirectObje
     match preceded(
         pdf_whitespace,
         tuple((
-            recognize_digits_not_beginning_with_zero,
+            not_zero_padded_digits_to_u32,
             tag(b" "),
-            take_while(is_digit),
+            digits_to_u16,
             tag(b" obj"),
             pdf_whitespace,
             alt((
@@ -844,38 +928,13 @@ pub fn recognize_pdf_indirect_object(i: &[u8]) -> IResult<&[u8], PdfIndirectObje
     )(i)
         {
             Ok((rest, (object_number, _, object_generation, _, _, object_itself, _, _, _))) => {
-                let number_raw: i64 = bytes_to_i64(object_number);
-                let generation_raw: i64 = bytes_to_i64(object_generation);
 
-                let mut number_cast: u32 = 0;
-                let mut generation_cast: u16 = 0;
-
-                match u32::try_from(number_raw) {
-                    Ok(v) => {
-                        number_cast = v;
-                    }
-                    Err(_x) => {
-                        // this isnt right but i dont get readily how to do otherwise neatly;
-                        // *PDF* validity and *combinator* function need to return Err() both.
-                        return Err(nom::Err::Failure((i, nom::error::ErrorKind::Digit)));
-                    }
-                }
-
-                match u16::try_from(generation_raw) {
-                    Ok(v) => {
-                        generation_cast = v;
-                    }
-                    Err(_x) => {
-                        // this isnt right but i dont get readily how to do otherwise neatly
-                        return Err(nom::Err::Failure((i, nom::error::ErrorKind::Digit)));
-                    }
-                }
 
                 Ok((
                     rest,
                     PdfIndirectObject {
-                        number: number_cast,
-                        generation: generation_cast,
+                        number: object_number,
+                        generation: object_generation,
                         obj: object_itself,
                     },
                 ))
@@ -884,6 +943,76 @@ pub fn recognize_pdf_indirect_object(i: &[u8]) -> IResult<&[u8], PdfIndirectObje
         }
 }
 
+
+//pub fn recognize_pdf_cross_reference_section(i: &[u8]) -> IResult<&[u8], XrefTable> {
+//    match preceded(
+//        alt((tag(b"xref\r\n"), tag(b"xref\r"), tag(b"xref\n"))),
+//        many1(
+//            tuple((
+//                alt((recognize_digits_not_beginning_with_zero, tag(b"0"))),
+//                tag(b" "),
+//                recognize_digits_not_beginning_with_zero,
+//                recognize_pdf_line_end,
+//                many1(
+//                    tuple((
+//                        take_while_m_n(10 as usize, 10 as usize, is_digit),
+//                        tag(b" "),
+//                        take_while_m_n(5 as usize, 5 as usize, is_digit),
+//                        tag(b" "),
+//                        alt((tag(b"n"), tag(b"f"))),
+//                        alt((tag(b"\r\n"), tag(b" \r"), tag(b" \n"))),
+//                    ))
+//                )
+//            ))
+//        ),
+//    )(i) {
+//        Ok((rest, vec_of_sections)) => {
+//            let mut xref: XrefTable = XrefTable::new();
+//
+//            for section in &vec_of_sections {
+//                match section {
+//                    (start_obj_number, _, how_many_objs, _, vec_of_entries) => {
+//                        let mut start_number = digits_to_u32(start_obj_number);
+//                        let num_objs = digits_to_u32(how_many_objs);
+//
+//                        if num_objs != vec_of_entries.len() {
+//                            // bad subsection
+//                        }
+//                        for entry in vec_of_entries {
+//                            match entry {
+//                                (offset, _, generation, _, in_use_or_free, _) => {
+//                                    let offset_num = digits_to_usize(offset);
+//                                    let generation_num = digits_to_u16(offset);
+//                                    match in_use_or_free {
+//                                        b"n" => {
+//                                            xref.add_in_use(start_number, offset_num, generation_num);
+//                                        },
+//                                        b"f" => {
+//                                            xref.add_free(start_number, generation_num);
+//                                        },
+//                                        _ => {
+//                                            // how did we get here?
+//                                        }
+//                                    };
+//                                    start_number = start_number + 1;
+//                                },
+//                                _ => {
+//                                    // missed expectation
+//                                }
+//                            }
+//                        }
+//
+//                    },
+//                    _ => {
+//                        // missed expectation
+//                    }
+//                }
+//            }
+//
+//        },
+//        Err(err) => { Err(err) }
+//    }
+//}
 
 #[cfg(test)]
 mod tests {
@@ -1322,8 +1451,8 @@ mod tests {
 
         assert_eq!(
             Err(nom::Err::Failure((
-                b"9 1928356 R".as_bytes(),
-                nom::error::ErrorKind::Digit
+                b"1928356 R".as_bytes(),
+                nom::error::ErrorKind::TooLarge
             ))),
             recognize_pdf_indirect_reference(b"9 1928356 R".as_bytes())
         );
