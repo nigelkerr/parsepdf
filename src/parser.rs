@@ -155,6 +155,7 @@ impl NameMap {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct XrefTable {
     object_offsets: BTreeMap<u32, usize>,
     object_generations: BTreeMap<u32, u16>,
@@ -185,6 +186,9 @@ impl XrefTable {
         self.object_offsets.insert(number, offset);
         self.offsets_to_objects.insert(offset, number);
     }
+    /* expressly ignoring the 10-digit value for free entries, since apparently
+       we don't care anymore about the linked list's significance (§ 7.5.4).
+       some additional validation probably wanted, tho'. */
     pub fn add_free(&mut self, number: u32, generation: u16) {
         self.object_generations.insert(number, generation);
         self.free_objects.insert(number);
@@ -1020,60 +1024,30 @@ fn recognize_pdf_cross_reference_subsection(i: &[u8]) -> IResult<&[u8], Vec<Xref
     }
 }
 
-//pub fn recognize_pdf_cross_reference_section(i: &[u8]) -> IResult<&[u8], XrefTable> {
-//    match preceded(
-//        alt((tag(b"xref\r\n"), tag(b"xref\r"), tag(b"xref\n"))),
-//        many1(
-//            recognize_pdf_cross_reference_subsection
-//        ),
-//    )(i) {
-//        Ok((rest, vec_of_sections)) => {
-//            let mut xref: XrefTable = XrefTable::new();
-//
-//            for section in &vec_of_sections {
-//                match section {
-//                    (start_obj_number, _, how_many_objs, _, vec_of_entries) => {
-//                        let mut start_number = digits_to_u32(start_obj_number);
-//                        let num_objs = digits_to_u32(how_many_objs);
-//
-//                        if num_objs != vec_of_entries.len() {
-//                            // bad subsection
-//                        }
-//                        for entry in vec_of_entries {
-//                            match entry {
-//                                (offset, _, generation, _, in_use_or_free, _) => {
-//                                    let offset_num = digits_to_usize(offset);
-//                                    let generation_num = digits_to_u16(offset);
-//                                    match in_use_or_free {
-//                                        b"n" => {
-//                                            xref.add_in_use(start_number, offset_num, generation_num);
-//                                        },
-//                                        b"f" => {
-//                                            xref.add_free(start_number, generation_num);
-//                                        },
-//                                        _ => {
-//                                            // how did we get here?
-//                                        }
-//                                    };
-//                                    start_number = start_number + 1;
-//                                },
-//                                _ => {
-//                                    // missed expectation
-//                                }
-//                            }
-//                        }
-//
-//                    },
-//                    _ => {
-//                        // missed expectation
-//                    }
-//                }
-//            }
-//
-//        },
-//        Err(err) => { Err(err) }
-//    }
-//}
+pub fn recognize_pdf_cross_reference_section(i: &[u8]) -> IResult<&[u8], XrefTable> {
+    match preceded(
+        alt((tag(b"xref\r\n"), tag(b"xref\r"), tag(b"xref\n"))),
+        many1(
+            recognize_pdf_cross_reference_subsection
+        ),
+    )(i) {
+        Ok((rest, vec_of_subsections)) => {
+            let mut xref: XrefTable = XrefTable::new();
+
+            for subsection in &vec_of_subsections {
+                for entry in subsection {
+                    if entry.in_use {
+                        xref.add_in_use(entry.number, entry.generation, entry.offset);
+                    } else {
+                        xref.add_free(entry.number, entry.generation);
+                    }
+                }
+            }
+            Ok((rest, xref))
+        },
+        Err(err) => { Err(err) }
+    }
+}
 
 #[cfg(test)]
 mod tests {
@@ -1994,5 +1968,63 @@ mod tests {
                 b"5 4\n0000000001 00002 n \n0000000099 00006 n \n0000000999 00008 n \n"
             )
         );
+    }
+
+
+    #[test]
+    fn test_xref_section() {
+        let (bytes, xref) = recognize_pdf_cross_reference_section(
+            b"xref\r\n0 6\r\n0000000003 65535 f \n0000000017 00000 n \n0000000081 00000 n \n0000000000 00007 f \n0000000331 00000 n \n0000000409 00000 n \n"
+        ).unwrap();
+
+        assert_eq!(4usize, xref.count_in_use());
+        assert_eq!(2usize, xref.count_free());
+
+        for in_use_obj_num in xref.in_use() {
+            assert!(in_use_obj_num == 1 || in_use_obj_num == 2 || in_use_obj_num == 4 || in_use_obj_num == 5);
+            assert_eq!(Some(0u16), xref.generation_of(in_use_obj_num));
+        }
+        for free_obj_num in xref.free() {
+            assert!(free_obj_num == 0 || free_obj_num == 3);
+            if free_obj_num == 0 {
+                assert_eq!(Some(65535u16), xref.generation_of(free_obj_num));
+            }
+            if free_obj_num == 3 {
+                assert_eq!(Some(7u16), xref.generation_of(free_obj_num));
+            }
+        }
+
+        assert_eq!(Some(17usize), xref.offset_of(1));
+        assert_eq!(Some(81usize), xref.offset_of(2));
+        assert_eq!(Some(331usize), xref.offset_of(4));
+        assert_eq!(Some(409usize), xref.offset_of(5));
+
+        let(bytes, xref2) = recognize_pdf_cross_reference_section(
+            b"xref\n0 1\n0000000000 65535 f \n3 1\n0000025325 00000 n \n23 2\n0000025518 00002 n \n0000025635 00000 n \n30 1\n0000025777 00000 n \n"
+        ).unwrap();
+
+        assert_eq!(4usize, xref2.count_in_use());
+        assert_eq!(1usize, xref2.count_free());
+
+        for in_use_obj_num in xref2.in_use() {
+            assert!(in_use_obj_num == 3 || in_use_obj_num == 23 || in_use_obj_num == 24 || in_use_obj_num == 30);
+        }
+
+        assert_eq!(Some(0u16), xref2.generation_of(3));
+        assert_eq!(Some(2u16), xref2.generation_of(23));
+        assert_eq!(Some(0u16), xref2.generation_of(24));
+        assert_eq!(Some(0u16), xref2.generation_of(30));
+
+        for free_obj_num in xref2.free() {
+            assert!(free_obj_num == 0 );
+            if free_obj_num == 0 {
+                assert_eq!(Some(65535u16), xref2.generation_of(free_obj_num));
+            }
+        }
+
+        assert_eq!(Some(25325usize), xref2.offset_of(3));
+        assert_eq!(Some(25518usize), xref2.offset_of(23));
+        assert_eq!(Some(25635usize), xref2.offset_of(24));
+        assert_eq!(Some(25777usize), xref2.offset_of(30));
     }
 }
