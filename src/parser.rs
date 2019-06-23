@@ -1,11 +1,10 @@
-use nom::{branch::alt, bytes::complete::*, character::*, combinator::*, multi::*, sequence::*, IResult, AsBytes};
+use nom::{branch::alt, bytes::complete::*, character::*, character::complete::digit1, combinator::*, multi::*, sequence::*, IResult, AsBytes};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::convert::TryFrom;
 use std::error;
 use std::fmt;
 use std::str;
 use std::str::FromStr;
-use nom::character::complete::digit1;
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum PdfVersion {
@@ -158,6 +157,14 @@ pub struct XrefTable {
     object_generations: BTreeMap<u32, u16>,
     free_objects: BTreeSet<u32>,
     offsets_to_objects: BTreeMap<usize, u32>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct XrefTableEntry {
+    number: u32,
+    generation: u16,
+    offset: usize,
+    in_use: bool,
 }
 
 impl XrefTable {
@@ -788,7 +795,6 @@ pub fn recognize_pdf_dictionary(i: &[u8]) -> IResult<&[u8], PdfObject> {
             _ => Err(nom::Err::Failure((i, nom::error::ErrorKind::Many0))),
         },
         Err(err) => Err(err),
-        _ => Err(nom::Err::Failure((i, nom::error::ErrorKind::Many0))),
     }
 }
 
@@ -943,27 +949,74 @@ pub fn recognize_pdf_indirect_object(i: &[u8]) -> IResult<&[u8], PdfIndirectObje
         }
 }
 
+fn recognize_pdf_cross_reference_entry(i: &[u8]) -> IResult<&[u8], XrefTableEntry> {
+    match tuple((
+        map(take_while_m_n(10usize,10usize,is_digit), |offset_digits| digits_to_usize(offset_digits)),
+        tag(b" "),
+        map(take_while_m_n(5usize,5usize, is_digit), |generation_digits| digits_to_u16(generation_digits)),
+        tag(b" "),
+        map(alt((tag(b"n"),tag(b"f"))), |in_use_or_not_bytes: &[u8]| in_use_or_not_bytes[0] == b'n'),
+        alt((tag(b"\r\n"),tag(b" \r"),tag(b" \n")))
+        ))(i) {
+        Ok((rest, (offset, _, generation, _, in_use, _))) => {
+            match offset {
+                Err(err) => { return Err(err); },
+                _ => {},
+            }
+            match generation {
+                Err(err) => { return Err(err); },
+                _ => {},
+            }
+            Ok((rest, XrefTableEntry{ number: 0u32, offset: offset.unwrap().1, generation: generation.unwrap().1, in_use: in_use}))
+        },
+        Err(err) => { Err(err) },
+    }
+}
+
+fn recognize_pdf_cross_reference_subsection(i: &[u8]) -> IResult<&[u8], Vec<XrefTableEntry>> {
+    match tuple((
+        digits_to_u32,
+        tag(b" "),
+        digits_to_usize,
+        recognize_pdf_line_end,
+        ))(i) {
+
+        Ok((rest, (start_number, _, how_many_entries, _))) => {
+
+            match fold_many_m_n(
+                how_many_entries,
+                how_many_entries,
+                recognize_pdf_cross_reference_entry,
+                Vec::new(),
+                |mut acc: Vec<XrefTableEntry>, item| {
+                    acc.push(item);
+                    acc
+                }
+            )(rest) {
+                Ok((rest, vec_of_entries)) => {
+
+                    let mut object_number: u32 = start_number;
+                    let mut final_vec: Vec<XrefTableEntry> = Vec::new();
+                    for xref in &vec_of_entries {
+                        final_vec.push(
+                            XrefTableEntry{ number: object_number, generation: xref.generation, offset: xref.offset, in_use: xref.in_use }
+                        )
+                    }
+
+                    Ok((rest, final_vec))
+                },
+                Err(err) => { Err(err) }
+            }
+        },
+        Err(err) => { Err(err) },
+    }
+}
 
 //pub fn recognize_pdf_cross_reference_section(i: &[u8]) -> IResult<&[u8], XrefTable> {
 //    match preceded(
 //        alt((tag(b"xref\r\n"), tag(b"xref\r"), tag(b"xref\n"))),
 //        many1(
-//            tuple((
-//                alt((recognize_digits_not_beginning_with_zero, tag(b"0"))),
-//                tag(b" "),
-//                recognize_digits_not_beginning_with_zero,
-//                recognize_pdf_line_end,
-//                many1(
-//                    tuple((
-//                        take_while_m_n(10 as usize, 10 as usize, is_digit),
-//                        tag(b" "),
-//                        take_while_m_n(5 as usize, 5 as usize, is_digit),
-//                        tag(b" "),
-//                        alt((tag(b"n"), tag(b"f"))),
-//                        alt((tag(b"\r\n"), tag(b" \r"), tag(b" \n"))),
-//                    ))
-//                )
-//            ))
+//            recognize_pdf_cross_reference_subsection
 //        ),
 //    )(i) {
 //        Ok((rest, vec_of_sections)) => {
@@ -1840,6 +1893,22 @@ mod tests {
             recognize_pdf_indirect_object(b"1 0 obj\n(xyzzy)endobj".as_bytes())
                 .unwrap()
                 .1
+        );
+    }
+
+    #[test]
+    fn test_xref_subsection_entry() {
+        assert_eq!(
+            Ok((b"".as_bytes(), XrefTableEntry { number: 0u32, offset: 200usize, generation: 1u16, in_use: true })),
+            recognize_pdf_cross_reference_entry(b"0000000200 00001 n \n")
+        );
+        assert_eq!(
+            Ok((b"".as_bytes(), XrefTableEntry { number: 0u32, offset: 400usize, generation: 3u16, in_use: false })),
+            recognize_pdf_cross_reference_entry(b"0000000400 00003 f \n")
+        );
+        assert_eq!(
+            Err(nom::Err::Failure((b"99999".as_bytes(), nom::error::ErrorKind::TooLarge))),
+            recognize_pdf_cross_reference_entry(b"0000000200 99999 n \n")
         );
     }
 }
