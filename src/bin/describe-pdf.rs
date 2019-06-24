@@ -68,13 +68,9 @@ fn process_file(possible_file: String) -> Result<(), PdfError> {
 
                 for object_number in xref_table.in_use() {
                     println!("processing object number {}", object_number);
-                    let obj_bytes = get_byte_array_from_file(
-                        &mut file,
-                        xref_table.offset_of(object_number).unwrap(),
-                        xref_table
-                            .max_length_of(object_number, file_len as usize)
-                            .unwrap(),
-                    )?;
+                    let obj_bytes = &mmap[xref_table.offset_of(object_number).unwrap() as usize .. xref_table
+                        .max_length_of(object_number, file_len)
+                        .unwrap() as usize];
                     match recognize_pdf_indirect_object(&obj_bytes) {
                         Ok((_rest, ind_obj)) => {
                             println!("ind obj: {}", ind_obj);
@@ -110,10 +106,10 @@ fn get_header(file: &[u8], file_len: u64) -> Result<PdfVersion, PdfError> {
 fn get_trailer_and_xref(
     file: &[u8],
     file_len: u64,
-) -> Result<(PdfObject, XrefTable, usize), PdfError> {
+) -> Result<(PdfObject, XrefTable, u64), PdfError> {
     let last_kaye = &file[(file_len - 1024) as usize..];
     let (dict, startxref) = parse_trailer(&last_kaye)?;
-    let xref_bytes = &file[startxref..];
+    let xref_bytes = &file[startxref as usize..];
     match recognize_pdf_cross_reference_section(&xref_bytes) {
         Ok((_rest, crt)) => Ok((dict, crt, startxref)),
         Err(err) => {
@@ -126,7 +122,7 @@ fn get_trailer_and_xref(
 // find in last_kaye where the last instance of "trailer" is,
 // start our file_trailer from that last instance.
 
-fn parse_trailer(last_kaye: &[u8]) -> Result<(PdfObject, usize), PdfError> {
+fn parse_trailer(last_kaye: &[u8]) -> Result<(PdfObject, u64), PdfError> {
     match last_kaye.last_indexof_needle(b"trailer") {
         Some(trailer_offset) => match recognize_pdf_trailer(&last_kaye[trailer_offset..]) {
             Ok((_rest, (trailer_dict, startxref_offset))) => Ok((trailer_dict, startxref_offset)),
@@ -136,14 +132,3 @@ fn parse_trailer(last_kaye: &[u8]) -> Result<(PdfObject, usize), PdfError> {
     }
 }
 
-/// caller expected to get the file state and numbers right!
-fn get_byte_array_from_file(
-    file: &mut File,
-    start: usize,
-    length: usize,
-) -> Result<Vec<u8>, io::Error> {
-    let _seek_result = file.seek(SeekFrom::Start(start as u64))?;
-    let mut retval = vec![0u8; length as usize];
-    let _read_result = file.read_exact(&mut retval[..])?;
-    Ok(retval)
-}

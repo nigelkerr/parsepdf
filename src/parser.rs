@@ -242,17 +242,17 @@ impl NameMap {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct XrefTable {
-    object_offsets: BTreeMap<u32, usize>,
+    object_offsets: BTreeMap<u32, u64>,
     object_generations: BTreeMap<u32, u16>,
     free_objects: BTreeSet<u32>,
-    offsets_to_objects: BTreeMap<usize, u32>,
+    offsets_to_objects: BTreeMap<u64, u32>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct XrefTableEntry {
     number: u32,
     generation: u16,
-    offset: usize,
+    offset: u64,
     in_use: bool,
 }
 
@@ -266,7 +266,7 @@ impl XrefTable {
         }
     }
 
-    pub fn add_in_use(&mut self, number: u32, generation: u16, offset: usize) {
+    pub fn add_in_use(&mut self, number: u32, generation: u16, offset: u64) {
         self.object_generations.insert(number, generation);
         self.object_offsets.insert(number, offset);
         self.offsets_to_objects.insert(offset, number);
@@ -299,13 +299,13 @@ impl XrefTable {
             _ => None,
         }
     }
-    pub fn offset_of(&self, number: u32) -> Option<usize> {
+    pub fn offset_of(&self, number: u32) -> Option<u64> {
         match self.object_offsets.get(&number) {
             Some(ref x) => Some((*x).clone()),
             _ => None,
         }
     }
-    pub fn next_offset_after(&self, number: u32) -> Option<usize> {
+    pub fn next_offset_after(&self, number: u32) -> Option<u64> {
         match self.offset_of(number) {
             Some(offset) => match self.offsets_to_objects.range((offset + 1)..).next() {
                 Some(next_offset) => Some(*next_offset.0),
@@ -314,7 +314,7 @@ impl XrefTable {
             None => None,
         }
     }
-    pub fn max_length_of(&self, number: u32, max_len: usize) -> Option<usize> {
+    pub fn max_length_of(&self, number: u32, max_len: u64) -> Option<u64> {
         match self.offset_of(number) {
             Some(offset) => match self.next_offset_after(number) {
                 Some(next_offset) => Some(next_offset - offset),
@@ -333,7 +333,7 @@ impl fmt::Display for XrefTable {
                 f,
                 "\t{}: offset {} gen {}\n",
                 objnum,
-                self.offset_of(objnum).unwrap_or(<usize>::max_value()),
+                self.offset_of(objnum).unwrap_or(<u64>::max_value()),
                 self.generation_of(objnum).unwrap_or(<u16>::max_value())
             )?
         }
@@ -1067,7 +1067,7 @@ fn recognize_pdf_cross_reference_entry(i: &[u8]) -> IResult<&[u8], XrefTableEntr
     match tuple((
         map(
             take_while_m_n(10usize, 10usize, is_digit),
-            |offset_digits| digits_to_usize(offset_digits),
+            |offset_digits| digits_to_u64(offset_digits),
         ),
         tag(b" "),
         map(
@@ -1175,7 +1175,7 @@ pub fn recognize_pdf_cross_reference_section(i: &[u8]) -> IResult<&[u8], XrefTab
     }
 }
 
-pub fn recognize_pdf_trailer(i: &[u8]) -> IResult<&[u8], (PdfObject, usize)> {
+pub fn recognize_pdf_trailer(i: &[u8]) -> IResult<&[u8], (PdfObject, u64)> {
     match preceded(
         tuple((tag(b"trailer"), pdf_whitespace)),
         tuple((
@@ -1183,7 +1183,7 @@ pub fn recognize_pdf_trailer(i: &[u8]) -> IResult<&[u8], (PdfObject, usize)> {
             pdf_whitespace,
             tag(b"startxref"),
             recognize_pdf_line_end,
-            not_zero_padded_digits_to_usize,
+            not_zero_padded_digits_to_u64,
             recognize_pdf_line_end,
             opt(recognize_pdf_comment),
         )),
@@ -2064,7 +2064,7 @@ mod tests {
                 b"".as_bytes(),
                 XrefTableEntry {
                     number: 0u32,
-                    offset: 200usize,
+                    offset: 200u64,
                     generation: 1u16,
                     in_use: true,
                 }
@@ -2076,7 +2076,7 @@ mod tests {
                 b"".as_bytes(),
                 XrefTableEntry {
                     number: 0u32,
-                    offset: 400usize,
+                    offset: 400u64,
                     generation: 3u16,
                     in_use: false,
                 }
@@ -2179,10 +2179,10 @@ mod tests {
             }
         }
 
-        assert_eq!(Some(17usize), xref.offset_of(1));
-        assert_eq!(Some(81usize), xref.offset_of(2));
-        assert_eq!(Some(331usize), xref.offset_of(4));
-        assert_eq!(Some(409usize), xref.offset_of(5));
+        assert_eq!(Some(17u64), xref.offset_of(1));
+        assert_eq!(Some(81u64), xref.offset_of(2));
+        assert_eq!(Some(331u64), xref.offset_of(4));
+        assert_eq!(Some(409u64), xref.offset_of(5));
 
         let (_bytes, xref2) = recognize_pdf_cross_reference_section(
             b"xref\n0 1\n0000000000 65535 f \n3 1\n0000025325 00000 n \n23 2\n0000025518 00002 n \n0000025635 00000 n \n30 1\n0000025777 00000 n \n"
@@ -2212,10 +2212,10 @@ mod tests {
             }
         }
 
-        assert_eq!(Some(25325usize), xref2.offset_of(3));
-        assert_eq!(Some(25518usize), xref2.offset_of(23));
-        assert_eq!(Some(25635usize), xref2.offset_of(24));
-        assert_eq!(Some(25777usize), xref2.offset_of(30));
+        assert_eq!(Some(25325u64), xref2.offset_of(3));
+        assert_eq!(Some(25518u64), xref2.offset_of(23));
+        assert_eq!(Some(25635u64), xref2.offset_of(24));
+        assert_eq!(Some(25777u64), xref2.offset_of(30));
     }
 
     #[test]
@@ -2241,7 +2241,7 @@ mod tests {
                             ),
                         ]
                     ).unwrap().unwrap()
-                ), 18799usize)
+                ), 18799u64)
             )),
             recognize_pdf_trailer(b"trailer\n<</Size 22\n/Root 2 0 R\n/Info 1 0 R\n/ID [<81b14aafa313db63dbd6f981e49f94f4>\n<81b14aafa313db63dbd6f981e49f94f4>\n] >>\nstartxref\n18799\n%%EOF\n")
         );
