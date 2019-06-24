@@ -13,3 +13,8 @@ to be valid, but the values conveyed must be validated and checked among each ot
 It is evident that a way to have facts learned about the contents of the PDF need to be compared to
 statements the PDF makes, and a structure outside the PDF objects itself is needed
 
+# 2019-06-23
+
+describe-pdf binary can understand PDFs that only use 1.4 and earlier version cross-reference tables,
+and only have one such table, as of this writing.
+
