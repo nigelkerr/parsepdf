@@ -1,8 +1,6 @@
 extern crate kmpsearch;
 extern crate memmap;
 extern crate parsepdf;
-#[macro_use]
-extern crate quick_error2;
 
 use std::env;
 use std::fs::File;
@@ -11,24 +9,6 @@ use kmpsearch::Haystack;
 use parsepdf::*;
 
 use memmap::MmapOptions;
-
-quick_error! {
-    #[derive(Debug)]
-    pub enum PdfError {
-        /// IO Error
-        Io(err: std::io::Error) {
-            from()
-        }
-        NotAFile {}
-        NotAPdfOrNeedsFrontTrimming {}
-        VeryShort {}
-        /// something up with the trailer
-        TrailerNotFound {}
-        TrailerPuzzlingStructure {}
-        Nom {}
-        PdfParsing {}
-    }
-}
 
 fn main() {
     let args: Vec<String> = env::args().skip(1).collect();
@@ -63,10 +43,17 @@ fn process_file(possible_file: String) -> Result<(), PdfError> {
                 println!("xref table: {}", xref_table);
 
                 for object_number in xref_table.in_use() {
-                    println!("processing object number {}", object_number);
-                    let obj_bytes = &mmap[xref_table.offset_of(object_number).unwrap() as usize .. xref_table
-                        .max_length_of(object_number, file_len)
-                        .unwrap() as usize];
+                    let object_start = xref_table.offset_of(object_number).unwrap() as usize;
+                    let object_length =
+                        xref_table.max_length_of(object_number, file_len).unwrap() as usize;
+
+                    println!(
+                        "processing object number {}, starts at {} at most {} bytes",
+                        object_number, object_start, object_length
+                    );
+
+                    let obj_bytes = &mmap[object_start..(object_start + object_length)];
+
                     match recognize_pdf_indirect_object(&obj_bytes) {
                         Ok((_rest, ind_obj)) => {
                             println!("ind obj: {}", ind_obj);
@@ -108,10 +95,9 @@ fn get_trailer_and_xref(
     let xref_bytes = &file[startxref as usize..];
     match recognize_pdf_cross_reference_section(&xref_bytes) {
         Ok((_rest, crt)) => Ok((dict, crt, startxref)),
-        Err(err) => {
-            println!("Nom error: {:#?}", err);
+        Err(_err) => {
             return Err(PdfError::Nom);
-        },
+        }
     }
 }
 
@@ -127,4 +113,3 @@ fn parse_trailer(last_kaye: &[u8]) -> Result<(PdfObject, u64), PdfError> {
         None => Err(PdfError::TrailerNotFound),
     }
 }
-

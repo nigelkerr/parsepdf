@@ -123,7 +123,7 @@ impl fmt::Display for PdfObject {
                     write!(f, "\n")?;
                 }
                 write!(f, ">>")
-            },
+            }
             PdfObject::IndirectReference {
                 number: n,
                 generation: g,
@@ -131,7 +131,6 @@ impl fmt::Display for PdfObject {
         }
     }
 }
-
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct PdfIndirectObject {
@@ -1913,9 +1912,6 @@ mod tests {
             ))),
             recognize_pdf_dictionary(b"<</yo>>".as_bytes())
         );
-
-
-
     }
 
     #[test]
@@ -2052,9 +2048,9 @@ mod tests {
                 .1
         );
 
-//        println!("whoa: {:#?}", recognize_pdf_indirect_object(
-//            b"19 0 obj\n<< /BG2 /Default /OP true /OPM 1 /SA false /SM 0.02 /Type /ExtGState /UCR2 /Default /op true >>\nendobj\n".as_bytes()
-//        ));
+        //        println!("whoa: {:#?}", recognize_pdf_indirect_object(
+        //            b"19 0 obj\n<< /BG2 /Default /OP true /OPM 1 /SA false /SM 0.02 /Type /ExtGState /UCR2 /Default /op true >>\nendobj\n".as_bytes()
+        //        ));
     }
 
     #[test]

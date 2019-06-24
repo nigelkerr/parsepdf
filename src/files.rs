@@ -1,9 +1,28 @@
-
 extern crate kmpsearch;
+extern crate nom;
 
 use crate::parser::PdfObject;
 use crate::parser::XrefTable;
 use kmpsearch::Haystack;
+
+quick_error! {
+    #[derive(Debug)]
+    pub enum PdfError {
+        /// IO Error
+        Io(err: std::io::Error) {
+            from()
+        }
+        NotAFile {}
+        NotAPdfOrNeedsFrontTrimming {}
+        VeryShort {}
+        /// something up with the trailer
+        TrailerNotFound {}
+        TrailerPuzzlingStructure {}
+        Nom {}
+        PdfParsing {}
+        NotImplementedYet {}
+    }
+}
 
 /// State of understanding of the organization of data and constructs inside
 /// some PDF file.  This struct does not own the PDF file representation itself,
@@ -19,7 +38,6 @@ pub struct PdfFile {
     xref_is_stream: Vec<bool>,
     trailers: Vec<PdfObject>,
     xref_tables: Vec<XrefTable>,
-
 }
 
 impl PdfFile {
@@ -36,6 +54,9 @@ impl PdfFile {
     }
 }
 
+pub fn parse_pdf(i: &[u8]) -> Result<PdfFile, PdfError> {
+    Err(PdfError::NotImplementedYet)
+}
 
 #[cfg(test)]
 mod tests {
