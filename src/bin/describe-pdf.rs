@@ -6,10 +6,6 @@ extern crate quick_error2;
 
 use std::env;
 use std::fs::File;
-use std::io;
-use std::io::Read;
-use std::io::Seek;
-use std::io::SeekFrom;
 
 use kmpsearch::Haystack;
 use parsepdf::*;
@@ -54,7 +50,7 @@ fn process_file(possible_file: String) -> Result<(), PdfError> {
 
     if metadata.is_file() {
         let file_len = metadata.len();
-        let mut file = File::open(possible_file).unwrap();
+        let file = File::open(possible_file).unwrap();
         let mmap = unsafe { MmapOptions::new().map(&file)? };
 
         let pdf_version = get_header(&mmap, file_len)?;

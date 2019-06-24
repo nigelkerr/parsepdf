@@ -10,8 +10,10 @@ extern crate nom;
 extern crate approx;
 
 mod parser;
+mod files;
 
 pub use crate::parser::*;
+pub use crate::files::*;
 
 #[cfg(test)]
 mod tests {}
