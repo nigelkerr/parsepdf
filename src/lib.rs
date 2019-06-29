@@ -8,9 +8,13 @@
 extern crate nom;
 #[macro_use]
 extern crate approx;
+#[macro_use]
+extern crate quick_error2;
 
+mod files;
 mod parser;
 
+pub use crate::files::*;
 pub use crate::parser::*;
 
 #[cfg(test)]
