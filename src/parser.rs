@@ -281,6 +281,14 @@ impl XrefTable {
         self.free_objects.insert(number);
     }
 
+    pub fn number_is_in_use(&self, number: u32) -> bool {
+        self.object_offsets.contains_key(&number)
+    }
+
+    pub fn number_is_free(&self, number: u32) -> bool {
+        self.free_objects.contains(&number)
+    }
+
     pub fn count_in_use(&self) -> usize {
         self.object_offsets.len()
     }

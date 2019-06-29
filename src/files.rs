@@ -62,8 +62,36 @@ impl PdfFile {
         }
     }
 
-    pub fn populate_master_xref_table() -> Result<(), PdfError> {
+    pub fn populate_master_xref_table(&mut self) -> Result<(), PdfError> {
 
+        for xt in self.xref_tables.iter() {
+            for in_use_obj in xt.in_use().iter() {
+                if !&self.master_xref_table.number_is_in_use(*in_use_obj) &&
+                    !&self.master_xref_table.number_is_free(*in_use_obj) {
+                    &self.master_xref_table.add_in_use(
+                        *in_use_obj,
+                        xt.generation_of(*in_use_obj).unwrap(),
+                        xt.offset_of(*in_use_obj).unwrap()
+                    );
+                }
+            }
+
+            for free_obj in xt.free().iter() {
+                if !&self.master_xref_table.number_is_in_use(*free_obj) &&
+                    !&self.master_xref_table.number_is_free(*free_obj) {
+                    &self.master_xref_table.add_free(
+                        *free_obj,
+                        xt.generation_of(*free_obj).unwrap()
+                    );
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    pub fn master_xref_table(&self) -> &XrefTable {
+        &self.master_xref_table
     }
 }
 
@@ -92,7 +120,6 @@ fn offset_of_latest_xref(i: &[u8]) -> Result<u64, PdfError> {
             return Err(PdfError::Nom);
         }
     }
-    println!("ugh2");
     Err(PdfError::TrailerNotFound)
 }
 
@@ -135,6 +162,19 @@ pub fn parse_pdf(i: &[u8], file_len: u64) -> Result<PdfFile, PdfError> {
                         match trailer_map.get2(b"Prev".as_bytes()) {
                             Ok(Some(PdfObject::Integer(new_xref))) => {
                                 let new_xref_u64: u64 = new_xref as u64;
+
+                                // these ought never loop
+                                if pdf_file.xref_offsets.contains(&new_xref_u64) {
+                                    return Err(PdfError::StartXrefAttemptedInfiniteLoop)
+                                }
+
+                                // these ought always strictly decrease
+                                if let Some(last_value) = pdf_file.xref_offsets.last()  {
+                                    if *last_value <= new_xref_u64 {
+                                        return Err(PdfError::StartXrefAttemptedNonsensicalValue)
+                                    }
+                                }
+
                                 next_xref = new_xref_u64;
                                 pdf_file.trailers.push(trailer_map);
                             }
@@ -161,6 +201,8 @@ pub fn parse_pdf(i: &[u8], file_len: u64) -> Result<PdfFile, PdfError> {
         }
     }
 
+    pdf_file.populate_master_xref_table();
+
     Ok(pdf_file)
 }
 
@@ -178,6 +220,9 @@ mod tests {
             Ok(pdffile) => {
                 assert_eq!(3, pdffile.xref_tables.len());
                 assert_eq!(PdfVersion::V1_0, pdffile.version);
+
+                assert_eq!(5, pdffile.master_xref_table.count_in_use());
+                assert_eq!(1, pdffile.master_xref_table.count_free());
             },
             Err(err) => {
                 println!("err: {:#?}", err);
