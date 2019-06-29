@@ -72,6 +72,7 @@ pub enum PdfObject {
     IndirectReference { number: u32, generation: u16 },
 }
 
+
 impl fmt::Display for PdfObject {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
@@ -245,6 +246,7 @@ pub struct XrefTable {
     object_generations: BTreeMap<u32, u16>,
     free_objects: BTreeSet<u32>,
     offsets_to_objects: BTreeMap<u64, u32>,
+    is_stream: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -262,6 +264,7 @@ impl XrefTable {
             object_generations: BTreeMap::new(),
             free_objects: BTreeSet::new(),
             offsets_to_objects: BTreeMap::new(),
+            is_stream: false,
         }
     }
 
@@ -321,6 +324,10 @@ impl XrefTable {
             },
             None => None,
         }
+    }
+
+    pub fn is_stream(&self) -> bool {
+        return self.is_stream;
     }
 }
 
