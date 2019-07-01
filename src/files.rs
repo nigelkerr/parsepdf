@@ -213,7 +213,6 @@ pub fn parse_pdf(i: &[u8], file_len: u64) -> Result<PdfFile, PdfError> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nom::AsBytes;
 
     #[test]
     fn basic_xref_and_trailer_structure() {

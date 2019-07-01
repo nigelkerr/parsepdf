@@ -9,6 +9,8 @@ approx = "0.3.2"
 memmap = "0.7.0"
 kmpsearch = "1.0.0"
 quick-error2 = "2.0.1"
+lzw = "0.10.0"
+inflate = "0.4.5"
 
 [dependencies.nom]
 version = "5.0.0"
