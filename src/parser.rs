@@ -747,6 +747,47 @@ pub fn recognize_ascii85_string(i: &[u8]) -> IResult<&[u8], Vec<u8>> {
     }
 }
 
+fn below_128(chr: u8) -> bool { chr < 0x80 }
+fn above_128(chr: u8) -> bool { chr > 0x80 }
+
+fn rel_length_below_128(i: &[u8]) -> IResult<&[u8], Vec<u8>> {
+    let taken = map(take_while_m_n(1usize, 1usize, below_128), |v: &[u8]| { v[0] } )(i)?;
+    if let (rest, length) = taken {
+        match map(take((length+1) as usize), |slice: &[u8]| { slice.to_vec() })(rest) {
+            Ok((rest2, v)) => { return Ok((rest2, v)); }
+            Err(err) => { return Err(err); }
+        }
+    }
+    return Err(nom::Err::Error((i, nom::error::ErrorKind::TooLarge)));
+}
+fn rel_length_above_128(i: &[u8]) -> IResult<&[u8], Vec<u8>> {
+    let taken = map(take_while_m_n(1usize, 1usize, above_128), |v: &[u8]| { v[0] } )(i)?;
+    if let (rest, length) = taken {
+        match map(take(1usize), |v: &[u8]| { vec![v[0]; ((257 as u16) - (length as u16)) as usize] })(rest) {
+            Ok((rest2, v)) => { return Ok((rest2, v)); },
+            Err(err) => { return Err(err); }
+        }
+    }
+    return Err(nom::Err::Error((i, nom::error::ErrorKind::TooLarge)));
+}
+
+pub fn recognize_rle_sequence(i: &[u8]) -> IResult<&[u8], Vec<u8>> {
+    terminated(
+        fold_many0(
+            alt((
+                complete(rel_length_below_128),
+                complete(rel_length_above_128)
+                )),
+            Vec::new(),
+            |mut accum: Vec<u8>, item: Vec<u8>| {
+                accum.extend(&item);
+                accum
+            }
+        ),
+        tag(b"\x80")
+    )(i)
+}
+
 /// only those digits that can be the high order
 /// third digit of a three-digit octal numeral
 /// representing a value from 0 to 255 inclusive.

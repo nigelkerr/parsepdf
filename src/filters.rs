@@ -2,7 +2,7 @@ extern crate inflate;
 extern crate lzw;
 
 use crate::parser::{recognize_asciihex_hexadecimal_string};
-use crate::recognize_ascii85_string;
+use crate::{recognize_ascii85_string, recognize_rle_sequence};
 
 use std::io;
 use nom::AsBytes;
@@ -80,6 +80,36 @@ pub fn decode_flate(input: &Vec<u8>) -> Result<Vec<u8>, DecodingResponse> {
     }
 }
 
+pub fn decode_rle(input: &Vec<u8>) -> Result<Vec<u8>, DecodingResponse> {
+    match recognize_rle_sequence(input.as_slice()) {
+        Ok((_rest, v)) => { Ok(v) },
+        Err(_err) => { Err(DecodingResponse::DecodeError) },
+    }
+}
+
+fn refuse_to_decode() -> Result<Vec<u8>, DecodingResponse> {
+    Err(DecodingResponse::RefuseToDecode)
+}
+
+pub fn decode_ccittfax(_input: &Vec<u8>) -> Result<Vec<u8>, DecodingResponse> {
+    refuse_to_decode()
+}
+
+pub fn decode_jbig2(_input: &Vec<u8>) -> Result<Vec<u8>, DecodingResponse> {
+    refuse_to_decode()
+}
+
+pub fn decode_dct(_input: &Vec<u8>) -> Result<Vec<u8>, DecodingResponse> {
+    refuse_to_decode()
+}
+
+pub fn decode_jpx(_input: &Vec<u8>) -> Result<Vec<u8>, DecodingResponse> {
+    refuse_to_decode()
+}
+
+pub fn decode_crypt(_input: &Vec<u8>) -> Result<Vec<u8>, DecodingResponse> {
+    refuse_to_decode()
+}
 
 #[cfg(test)]
 mod tests {
@@ -143,6 +173,17 @@ mod tests {
         match decode_flate(&input) {
             Ok(v) => { assert_eq!(data, v); },
             _ => { assert_eq!(107,0); },
+        }
+    }
+
+    #[test]
+    fn decode_rle_test() {
+        let input = b"\xffb\x00c\x80".to_vec();
+        let data = b"bbc".to_vec();
+
+        match decode_rle(&input) {
+            Ok(v) => { assert_eq!(data, v); },
+            _ => { assert_eq!(108,0); },
         }
     }
 }
