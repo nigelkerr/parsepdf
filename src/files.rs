@@ -1,10 +1,12 @@
 extern crate kmpsearch;
-extern crate nom;
 
 use crate::parser::PdfObject;
 use crate::parser::XrefTable;
+use crate::{
+    recognize_pdf_cross_reference_section, recognize_pdf_trailer, recognize_pdf_version, NameMap,
+    PdfVersion,
+};
 use kmpsearch::Haystack;
-use crate::{PdfVersion, recognize_pdf_trailer, recognize_pdf_cross_reference_section, NameMap, recognize_pdf_version};
 use nom::AsBytes;
 
 quick_error! {
@@ -63,26 +65,26 @@ impl PdfFile {
     }
 
     pub fn populate_master_xref_table(&mut self) -> Result<(), PdfError> {
-
         for xt in self.xref_tables.iter() {
             for in_use_obj in xt.in_use().iter() {
-                if !&self.master_xref_table.number_is_in_use(*in_use_obj) &&
-                    !&self.master_xref_table.number_is_free(*in_use_obj) {
+                if !&self.master_xref_table.number_is_in_use(*in_use_obj)
+                    && !&self.master_xref_table.number_is_free(*in_use_obj)
+                {
                     &self.master_xref_table.add_in_use(
                         *in_use_obj,
                         xt.generation_of(*in_use_obj).unwrap(),
-                        xt.offset_of(*in_use_obj).unwrap()
+                        xt.offset_of(*in_use_obj).unwrap(),
                     );
                 }
             }
 
             for free_obj in xt.free().iter() {
-                if !&self.master_xref_table.number_is_in_use(*free_obj) &&
-                    !&self.master_xref_table.number_is_free(*free_obj) {
-                    &self.master_xref_table.add_free(
-                        *free_obj,
-                        xt.generation_of(*free_obj).unwrap()
-                    );
+                if !&self.master_xref_table.number_is_in_use(*free_obj)
+                    && !&self.master_xref_table.number_is_free(*free_obj)
+                {
+                    &self
+                        .master_xref_table
+                        .add_free(*free_obj, xt.generation_of(*free_obj).unwrap());
                 }
             }
         }
@@ -100,8 +102,8 @@ impl PdfFile {
 /// which is rather a shame (§ 7.5.2 Note 1)
 fn locate_start_offset(i: &[u8]) -> Option<u64> {
     match i.first_indexof_needle("%PDF-") {
-        Some(index) => { Some(index as u64) }
-        None => { None }
+        Some(index) => Some(index as u64),
+        None => None,
     }
 }
 
@@ -123,7 +125,6 @@ fn offset_of_latest_xref(i: &[u8]) -> Result<u64, PdfError> {
     Err(PdfError::TrailerNotFound)
 }
 
-
 pub fn parse_pdf(i: &[u8], file_len: u64) -> Result<PdfFile, PdfError> {
     let mut input = i;
     let mut pdf_file: PdfFile = PdfFile::new();
@@ -137,14 +138,16 @@ pub fn parse_pdf(i: &[u8], file_len: u64) -> Result<PdfFile, PdfError> {
             match recognize_pdf_version(&input) {
                 Ok((_rest, version)) => {
                     pdf_file.version = version;
-                },
+                }
                 Err(_err) => {
                     return Err(PdfError::NotARecognizedPdfVersion);
                 }
             }
             pdf_file.end_offset = file_len - pdf_file.start_offset;
         }
-        None => { return Err(PdfError::NotAPdfOrNeedsFrontTrimming); }
+        None => {
+            return Err(PdfError::NotAPdfOrNeedsFrontTrimming);
+        }
     }
 
     let mut next_xref = offset_of_latest_xref(input)?;
@@ -165,13 +168,13 @@ pub fn parse_pdf(i: &[u8], file_len: u64) -> Result<PdfFile, PdfError> {
 
                                 // these ought never loop
                                 if pdf_file.xref_offsets.contains(&new_xref_u64) {
-                                    return Err(PdfError::StartXrefAttemptedInfiniteLoop)
+                                    return Err(PdfError::StartXrefAttemptedInfiniteLoop);
                                 }
 
                                 // these ought always strictly decrease
-                                if let Some(last_value) = pdf_file.xref_offsets.last()  {
+                                if let Some(last_value) = pdf_file.xref_offsets.last() {
                                     if *last_value <= new_xref_u64 {
-                                        return Err(PdfError::StartXrefAttemptedNonsensicalValue)
+                                        return Err(PdfError::StartXrefAttemptedNonsensicalValue);
                                     }
                                 }
 
@@ -201,16 +204,16 @@ pub fn parse_pdf(i: &[u8], file_len: u64) -> Result<PdfFile, PdfError> {
         }
     }
 
-    pdf_file.populate_master_xref_table();
-
-    Ok(pdf_file)
+    match pdf_file.populate_master_xref_table() {
+        Ok(()) => Ok(pdf_file),
+        Err(err) => Err(err),
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use nom::AsBytes;
-
 
     #[test]
     fn basic_xref_and_trailer_structure() {
@@ -223,11 +226,12 @@ mod tests {
 
                 assert_eq!(5, pdffile.master_xref_table.count_in_use());
                 assert_eq!(1, pdffile.master_xref_table.count_free());
-            },
+            }
             Err(err) => {
                 println!("err: {:#?}", err);
                 assert_eq!(100, 0);
             }
         }
     }
+
 }

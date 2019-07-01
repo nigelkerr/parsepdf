@@ -72,7 +72,6 @@ pub enum PdfObject {
     IndirectReference { number: u32, generation: u16 },
 }
 
-
 impl fmt::Display for PdfObject {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
@@ -588,7 +587,7 @@ fn hex_digit_to_byte_value(chr: u8) -> u8 {
 }
 
 // because we trust.  this irks me.
-fn vec_of_bytes_from_hex_string_literal(input: &[u8]) -> Vec<u8> {
+fn vec_of_bytes_from_hex_string_literal(input: &[u8]) -> Option<Vec<u8>> {
     let mut result: Vec<u8> = Vec::new();
     let filtered: Vec<u8> = input
         .iter()
@@ -604,10 +603,27 @@ fn vec_of_bytes_from_hex_string_literal(input: &[u8]) -> Vec<u8> {
         }
     }
 
-    result
+    Some(result)
 }
 
-pub fn recognize_pdf_hexidecimal_string(i: &[u8]) -> IResult<&[u8], PdfObject> {
+pub fn recognize_asciihex_hexadecimal_string(i: &[u8]) -> IResult<&[u8], Vec<u8>> {
+    match preceded(
+        pdf_whitespace,
+        terminated(
+            map(take_while(can_be_in_hexadecimal_string), |v| {
+                vec_of_bytes_from_hex_string_literal(v)
+            }),
+            tag(b">"),
+        ),
+    )(i)
+    {
+        Ok((_rest, Some(v))) => Ok((_rest, v)),
+        Ok((rest, None)) => Err(nom::Err::Error((rest, nom::error::ErrorKind::TooLarge))),
+        Err(err) => Err(err),
+    }
+}
+
+pub fn recognize_pdf_hexadecimal_string(i: &[u8]) -> IResult<&[u8], PdfObject> {
     match preceded(
         pdf_whitespace,
         preceded(
@@ -621,7 +637,112 @@ pub fn recognize_pdf_hexidecimal_string(i: &[u8]) -> IResult<&[u8], PdfObject> {
         ),
     )(i)
     {
-        Ok((rest, v)) => Ok((rest, PdfObject::String(v))),
+        Ok((rest, Some(v))) => Ok((rest, PdfObject::String(v))),
+        Ok((rest, None)) => Err(nom::Err::Error((rest, nom::error::ErrorKind::TooLarge))),
+        Err(err) => Err(err),
+    }
+}
+
+#[inline]
+fn can_be_in_ascii85_string(chr: u8) -> bool {
+    is_ascii85_digit(chr) || is_pdf_whitespace(chr)
+}
+#[inline]
+fn is_ascii85_digit(chr: u8) -> bool {
+    (chr >= 0x21 && chr <= 0x75) || chr == 0x7A
+}
+
+fn vec_of_bytes_from_ascii85_string_literal(input: &[u8]) -> Option<Vec<u8>> {
+    let c_85_4: u64 = 85 * 85 * 85 * 85;
+    let c_85_3: u64 = 85 * 85 * 85;
+    let c_85_2: u64 = 85 * 85;
+    let c_85_1: u64 = 85;
+
+    let addend: u8 = 0x21;
+    let padding: u64 = (0x75 - addend) as u64;
+
+    let mut result: Vec<u8> = Vec::new();
+    let filtered: Vec<u8> = input
+        .iter()
+        .filter(|&x| is_ascii85_digit(*x))
+        .cloned()
+        .collect();
+
+    // it would be nice to have a for-loop over 5-byte chunks here, but the z
+    // case, where it is a single byte, not 5, that makes 4 output bytes,
+    // makes that hard.
+    let mut pos = 0;
+    let length = filtered.len();
+
+    while pos < length {
+        if filtered[pos] == 0x7A {
+            // z special case
+            result.push(0x0);
+            result.push(0x0);
+            result.push(0x0);
+            result.push(0x0);
+            pos += 1;
+            continue;
+        }
+
+        let bytes_left = if (length - pos) > 5 { 5 } else { length - pos };
+        if bytes_left < 2 {
+            // ugh
+            return None;
+        }
+
+        let mut bytes_needed = 4;
+        let mut v: u64 = ((filtered[pos] - addend) as u64 * c_85_4)
+            + ((filtered[pos + 1] - addend) as u64 * c_85_3);
+
+        match bytes_left {
+            2 => {
+                bytes_needed = 1;
+                v += (padding * c_85_2) + (padding * c_85_1) + padding;
+            }
+            3 => {
+                bytes_needed = 2;
+                v += ((filtered[pos + 2] - addend) as u64 * c_85_2) + (padding * c_85_1) + padding;
+            }
+            4 => {
+                bytes_needed = 3;
+                v += ((filtered[pos + 2] - addend) as u64 * c_85_2)
+                    + ((filtered[pos + 3] - addend) as u64 * c_85_1)
+                    + padding;
+            }
+            5 => {
+                v += ((filtered[pos + 2] - addend) as u64 * c_85_2)
+                    + ((filtered[pos + 3] - addend) as u64 * c_85_1)
+                    + (filtered[pos + 4] - addend) as u64;
+            }
+            _ => {}
+        }
+
+        let mut shift: u64 = 32;
+        for _ in 0..bytes_needed {
+            shift -= 8;
+            result.push((v >> shift) as u8 & 0xff);
+        }
+
+        pos += bytes_needed + 1;
+    }
+
+    Some(result)
+}
+
+pub fn recognize_ascii85_string(i: &[u8]) -> IResult<&[u8], Vec<u8>> {
+    match preceded(
+        pdf_whitespace,
+        terminated(
+            map(take_while(can_be_in_ascii85_string), |v| {
+                vec_of_bytes_from_ascii85_string_literal(v)
+            }),
+            tag(b"~>"),
+        ),
+    )(i)
+    {
+        Ok((rest, Some(v))) => Ok((rest, v)),
+        Ok((rest, None)) => Err(nom::Err::Error((rest, nom::error::ErrorKind::TooLarge))),
         Err(err) => Err(err),
     }
 }
@@ -777,10 +898,15 @@ pub fn recognize_pdf_literal_string(i: &[u8]) -> IResult<&[u8], PdfObject> {
 }
 
 fn recognize_name_hex_encoded_byte(i: &[u8]) -> IResult<&[u8], Vec<u8>> {
-    map(
+    match map(
         preceded(tag(b"#"), take_while_m_n(2usize, 2usize, is_hex_digit)),
         |x: &[u8]| vec_of_bytes_from_hex_string_literal(x),
     )(i)
+    {
+        Ok((rest, Some(v))) => Ok((rest, v)),
+        Ok((rest, None)) => Err(nom::Err::Error((rest, nom::error::ErrorKind::TooLarge))),
+        Err(err) => Err(err),
+    }
 }
 
 fn is_possible_in_name_unencoded(chr: u8) -> bool {
@@ -868,7 +994,7 @@ pub fn recognize_pdf_array(i: &[u8]) -> IResult<&[u8], PdfObject> {
                         recognize_pdf_boolean,
                         recognize_pdf_name,
                         recognize_pdf_comment,
-                        recognize_pdf_hexidecimal_string,
+                        recognize_pdf_hexadecimal_string,
                         recognize_pdf_literal_string,
                         recognize_pdf_array,
                         recognize_pdf_dictionary,
@@ -905,7 +1031,7 @@ pub fn recognize_pdf_dictionary(i: &[u8]) -> IResult<&[u8], PdfObject> {
                     recognize_pdf_boolean,
                     recognize_pdf_name,
                     recognize_pdf_comment,
-                    recognize_pdf_hexidecimal_string,
+                    recognize_pdf_hexadecimal_string,
                     recognize_pdf_literal_string,
                     recognize_pdf_array,
                     recognize_pdf_dictionary,
@@ -1054,7 +1180,7 @@ pub fn recognize_pdf_indirect_object(i: &[u8]) -> IResult<&[u8], PdfIndirectObje
                 recognize_pdf_boolean,
                 recognize_pdf_name,
                 recognize_pdf_comment,
-                recognize_pdf_hexidecimal_string,
+                recognize_pdf_hexadecimal_string,
                 recognize_pdf_literal_string,
                 recognize_pdf_array,
                 recognize_pdf_stream,
@@ -1439,7 +1565,7 @@ mod tests {
                 b"->".as_bytes(),
                 nom::error::ErrorKind::Tag
             ))),
-            recognize_pdf_hexidecimal_string(b"<a->")
+            recognize_pdf_hexadecimal_string(b"<a->")
         );
     }
     macro_rules! hexst {
@@ -1448,7 +1574,7 @@ mod tests {
                 #[test]
                 fn $name() {
                     let (input, expected) = $value;
-                    match recognize_pdf_hexidecimal_string(input).unwrap() {
+                    match recognize_pdf_hexadecimal_string(input).unwrap() {
                         (_b, PdfObject::String(v)) => {
                             assert_eq!( v, expected );
                         },
@@ -2237,18 +2363,18 @@ mod tests {
                 (PdfObject::Dictionary(
                     NameMap::of(
                         vec![
-                            PdfObject::Name( b"Size"[..].to_owned()),
+                            PdfObject::Name(b"Size"[..].to_owned()),
                             PdfObject::Integer(22),
-                            PdfObject::Name( b"Root"[..].to_owned()),
+                            PdfObject::Name(b"Root"[..].to_owned()),
                             PdfObject::IndirectReference { number: 2, generation: 0 },
-                            PdfObject::Name( b"Info"[..].to_owned()),
+                            PdfObject::Name(b"Info"[..].to_owned()),
                             PdfObject::IndirectReference { number: 1, generation: 0 },
-                            PdfObject::Name( b"ID"[..].to_owned()),
+                            PdfObject::Name(b"ID"[..].to_owned()),
                             PdfObject::Array(
-                                    vec![
-                                        PdfObject::String( b"\x81\xb1\x4a\xaf\xa3\x13\xdb\x63\xdb\xd6\xf9\x81\xe4\x9f\x94\xf4"[..].to_owned() ),
-                                        PdfObject::String( b"\x81\xb1\x4a\xaf\xa3\x13\xdb\x63\xdb\xd6\xf9\x81\xe4\x9f\x94\xf4"[..].to_owned() )
-                                    ]
+                                vec![
+                                    PdfObject::String(b"\x81\xb1\x4a\xaf\xa3\x13\xdb\x63\xdb\xd6\xf9\x81\xe4\x9f\x94\xf4"[..].to_owned()),
+                                    PdfObject::String(b"\x81\xb1\x4a\xaf\xa3\x13\xdb\x63\xdb\xd6\xf9\x81\xe4\x9f\x94\xf4"[..].to_owned())
+                                ]
                             ),
                         ]
                     ).unwrap().unwrap()

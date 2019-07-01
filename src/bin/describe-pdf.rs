@@ -35,23 +35,25 @@ fn process_file(possible_file: String) -> Result<(), PdfError> {
 
         for obj_num in pdffile.master_xref_table().in_use() {
             match pdffile.master_xref_table().offset_of(obj_num) {
-                Some(offset) => {
-
-                    match recognize_pdf_indirect_object(&mmap[offset as usize .. ]) {
-                        Ok((_rest, pdf_ind_obj)) => {
-                            println!("object num {} at offset {}\n{}\n", obj_num, offset, pdf_ind_obj);
-                        },
-                        Err(_err) => {
-                            println!("parsing error on object num {} at offset {}", obj_num, offset);
-                            return Err(PdfError::Nom);
-                        }
+                Some(offset) => match recognize_pdf_indirect_object(&mmap[offset as usize..]) {
+                    Ok((_rest, pdf_ind_obj)) => {
+                        println!(
+                            "object num {} at offset {}\n{}\n",
+                            obj_num, offset, pdf_ind_obj
+                        );
+                    }
+                    Err(_err) => {
+                        println!(
+                            "parsing error on object num {} at offset {}",
+                            obj_num, offset
+                        );
+                        return Err(PdfError::Nom);
                     }
                 },
                 _ => {
                     println!("object num {} no offset???\n", obj_num);
                 }
             }
-
         }
 
         Ok(())
@@ -59,4 +61,3 @@ fn process_file(possible_file: String) -> Result<(), PdfError> {
         Err(PdfError::NotAFile)
     }
 }
-
