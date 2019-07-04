@@ -84,6 +84,8 @@ pub fn decode(input: &Vec<u8>, stream_dictionary: &NameMap) -> Result<Vec<u8>, D
 
     for (pos, filt) in filters.iter().enumerate() {
 
+        let decode_param = decode_params.get(pos);
+
         match filt {
             PdfObject::Name(decode_name) => {
 
@@ -95,7 +97,7 @@ pub fn decode(input: &Vec<u8>, stream_dictionary: &NameMap) -> Result<Vec<u8>, D
                         current_result = decode_ascii85(&current_result)?;
                     },
                     b"FlateDecode" => {
-
+                        current_result = decode_flate(&current_result, decode_param)?;
                     },
                     _ => {
                         return Err(DecodingResponse::NotImplementedYet);
@@ -165,7 +167,7 @@ pub fn decode_lzw(input: &Vec<u8>, early: bool) -> Result<Vec<u8>, DecodingRespo
     Ok(result)
 }
 
-pub fn decode_flate(input: &Vec<u8>) -> Result<Vec<u8>, DecodingResponse> {
+pub fn decode_flate(input: &Vec<u8>, decode_params: Option<&PdfObject>) -> Result<Vec<u8>, DecodingResponse> {
     match inflate::inflate_bytes_zlib(input.as_bytes()) {
         Ok(result) => { Ok(result) }
         Err(_s) => { Err(DecodingResponse::DecodeError) }
@@ -260,7 +262,7 @@ mod tests {
         let input = include_bytes!("../assets/flate.bitstream").to_vec();
         let data = b"q\nBT\n36 806 Td\nET\nQ\nq 1 0 0 1 0 0 cm /Xf1 Do Q\n".to_vec();
 
-        match decode_flate(&input) {
+        match decode_flate(&input, None) {
             Ok(v) => { assert_eq!(data, v); }
             _ => { assert_eq!(107, 0); }
         }
