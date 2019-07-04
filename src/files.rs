@@ -2,12 +2,9 @@ extern crate kmpsearch;
 
 use crate::parser::PdfObject;
 use crate::parser::XrefTable;
-use crate::{
-    recognize_pdf_cross_reference_section, recognize_pdf_trailer, recognize_pdf_version, NameMap,
-    PdfVersion,
-};
+use crate::{recognize_pdf_cross_reference_section, recognize_pdf_trailer, recognize_pdf_version, NameMap, PdfVersion, recognize_pdf_startxref};
 use kmpsearch::Haystack;
-use nom::AsBytes;
+use nom::{IResult,AsBytes};
 
 quick_error! {
     #[derive(Debug)]
@@ -113,11 +110,11 @@ fn offset_of_latest_xref(i: &[u8]) -> Result<u64, PdfError> {
     let last_kaye = i.len() - last_bytes;
     let last_kay_slice = &i[last_kaye..];
 
-    if let Some(offset) = last_kay_slice.last_indexof_needle(b"trailer") {
-        let trailer_offset = last_kaye + offset;
+    if let Some(offset) = last_kay_slice.last_indexof_needle(b"startxref") {
+        let startxref_offset = last_kaye + offset;
 
-        if let Ok(x) = recognize_pdf_trailer(&i[trailer_offset..]) {
-            return Ok((x.1).1);
+        if let Ok(x) = recognize_pdf_startxref(&i[startxref_offset..]) {
+            return Ok(x.1);
         } else {
             return Err(PdfError::Nom);
         }

@@ -338,6 +338,7 @@ impl XrefTable {
     }
 }
 
+
 impl fmt::Display for XrefTable {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "XrefTable[\n")?;
@@ -361,6 +362,24 @@ impl fmt::Display for XrefTable {
         write!(f, "]\n")
     }
 }
+
+pub enum XrefTableEntry2 {
+    Free{ number: u32, generation: u16 },
+    Uncompressed { number: u32, generation: u16, offset: u64 },
+    Compressed { number: u32, in_object_number: u32, index_in_stream: u32 },
+}
+
+pub struct XrefTable2 {
+    free_objects: BTreeSet<u32>,
+    free_object_generations: BTreeMap<u32, u16>,
+    uncompressed_objects: BTreeSet<u32>,
+    uncompressed_object_generations: BTreeMap<u32, u16>,
+    uncompressed_object_offsets: BTreeMap<u32, u64>,
+    compressed_objects: BTreeSet<u32>,
+    compressed_objects_in_object: BTreeMap<u32,u32>,
+    compressed_objects_indexes: BTreeMap<u32, u32>,
+}
+
 
 pub fn recognize_pdf_version(i: &[u8]) -> IResult<&[u8], PdfVersion> {
     preceded(
@@ -1362,18 +1381,29 @@ pub fn recognize_pdf_trailer(i: &[u8]) -> IResult<&[u8], (PdfObject, u64)> {
         tuple((
             recognize_pdf_dictionary,
             pdf_whitespace,
-            tag(b"startxref"),
-            recognize_pdf_line_end,
-            not_zero_padded_digits_to_u64,
-            recognize_pdf_line_end,
-            opt(recognize_pdf_comment),
+            recognize_pdf_startxref
         )),
     )(i)
     {
-        Ok((rest, (trailer_dict, _, _, _, startxref_offset, _, _))) => {
+        Ok((rest, (trailer_dict,  _, startxref_offset))) => {
             Ok((rest, (trailer_dict, startxref_offset)))
         }
         Err(err) => Err(err),
+    }
+}
+
+pub fn recognize_pdf_startxref(i: &[u8]) -> IResult<&[u8], u64> {
+    match tuple((
+        tag(b"startxref"),
+        recognize_pdf_line_end,
+        not_zero_padded_digits_to_u64,
+        recognize_pdf_line_end,
+        opt(recognize_pdf_comment)
+    ))(i) {
+        Ok((rest, (_, _, startxref_offset, _, _))) => {
+            Ok((rest, startxref_offset))
+        },
+        Err(err) => { Err(err) }
     }
 }
 
