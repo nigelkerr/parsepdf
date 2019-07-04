@@ -2,7 +2,7 @@ extern crate kmpsearch;
 
 use crate::parser::PdfObject;
 use crate::parser::XrefTable;
-use crate::{recognize_pdf_old_style_cross_reference_section, recognize_pdf_trailer, recognize_pdf_version, NameMap, PdfVersion, recognize_pdf_startxref};
+use crate::{recognize_pdf_old_style_cross_reference_section, recognize_pdf_old_style_trailer, recognize_pdf_version, NameMap, PdfVersion, recognize_pdf_startxref};
 use kmpsearch::Haystack;
 use nom::{IResult,AsBytes};
 
@@ -157,7 +157,7 @@ pub fn parse_pdf(i: &[u8], file_len: u64) -> Result<PdfFile, PdfError> {
                 pdf_file.xref_is_stream.push(xr.is_stream());
                 pdf_file.xref_tables.push(xr);
 
-                match recognize_pdf_trailer(rest) {
+                match recognize_pdf_old_style_trailer(rest) {
                     Ok((_rest2, PdfObject::Dictionary(trailer_map))) => {
                         match trailer_map.get2(b"Prev".as_bytes()) {
                             Ok(Some(PdfObject::Integer(new_xref))) => {

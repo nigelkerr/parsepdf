@@ -237,6 +237,16 @@ impl NameMap {
             .map(|vecu8| PdfObject::Name(vecu8.clone()))
             .collect()
     }
+
+    pub fn contains_key(&self, k: PdfObject) -> bool {
+        match k {
+            PdfObject::Name(x) => { self.map.contains_key(&x) },
+            _ => { false }
+        }
+    }
+    pub fn contains_key2(&self, k: &[u8]) -> bool {
+        self.map.contains_key(k)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1378,7 +1388,7 @@ pub fn recognize_pdf_old_style_cross_reference_section(i: &[u8]) -> IResult<&[u8
     }
 }
 
-pub fn recognize_pdf_trailer(i: &[u8]) -> IResult<&[u8], PdfObject> {
+pub fn recognize_pdf_old_style_trailer(i: &[u8]) -> IResult<&[u8], PdfObject> {
     match preceded(
         tuple((tag(b"trailer"), pdf_whitespace)),
         tuple((
@@ -1394,15 +1404,43 @@ pub fn recognize_pdf_trailer(i: &[u8]) -> IResult<&[u8], PdfObject> {
     }
 }
 
+fn recognize_old_style_cross_reference(i: &[u8]) -> IResult<&[u8], (XrefTable, PdfObject)> {
+    tuple((
+        recognize_pdf_old_style_cross_reference_section,
+        recognize_pdf_old_style_trailer
+        ))(i)
+}
+
+// we will not reflect to the caller that we actually have an indirect stream
+// object here, and maybe that's okay for purposes.  we can also access it as
+// a normal indirect object.
+fn recognize_xrefstm_cross_reference(i: &[u8]) -> IResult<&[u8], (XrefTable, PdfObject)> {
+
+    match recognize_pdf_indirect_object(i) {
+        Ok((rest, PdfIndirectObject { number: number, generation: generation, obj: PdfObject::Stream(name_map, data)})) => {
+
+            let decoded_data = crate::filters::decode(&data, &name_map);
+            Err(nom::Err::Error((i, nom::error::ErrorKind::TooLarge)))
+
+        },
+        Ok((_rest, unexpected)) => {
+            println!("expected indirect stream object, got {:#?} instead", unexpected);
+            // TODO compose errors better ugh
+            Err(nom::Err::Error((i, nom::error::ErrorKind::TooLarge)))
+        }
+        Err(err) => { Err(err) }
+    }
+}
 
 /// Given that we are started at an offset that a startxref
 /// refers to, recognize either the old_style or xrefstm style
 /// cross-reference and trailer together.
-//pub fn recognize_pdf_cross_reference(i: &[u8]) -> IResult<&[u8], (XrefTable, PdfObject)> {
-//
-//    match
-//
-//}
+pub fn recognize_pdf_cross_reference(i: &[u8]) -> IResult<&[u8], (XrefTable, PdfObject)> {
+    alt((
+        recognize_old_style_cross_reference,
+        recognize_xrefstm_cross_reference,
+    ))(i)
+}
 
 pub fn recognize_pdf_startxref(i: &[u8]) -> IResult<&[u8], u64> {
     match tuple((
@@ -2463,7 +2501,7 @@ mod tests {
                     ).unwrap().unwrap()
                 )
             )),
-            recognize_pdf_trailer(b"trailer\n<</Size 22\n/Root 2 0 R\n/Info 1 0 R\n/ID [<81b14aafa313db63dbd6f981e49f94f4>\n<81b14aafa313db63dbd6f981e49f94f4>\n] >>\nstartxref\n18799\n%%EOF\n")
+            recognize_pdf_old_style_trailer(b"trailer\n<</Size 22\n/Root 2 0 R\n/Info 1 0 R\n/ID [<81b14aafa313db63dbd6f981e49f94f4>\n<81b14aafa313db63dbd6f981e49f94f4>\n] >>\nstartxref\n18799\n%%EOF\n")
         );
     }
 }
