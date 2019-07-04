@@ -108,7 +108,7 @@ impl fmt::Display for PdfObject {
                     write!(f, "\t")?;
                     name.fmt(f)?;
                     write!(f, "\n\t\t")?;
-                    nkm.get(name).unwrap().unwrap().fmt(f)?;
+                    nkm.get(name).unwrap().fmt(f)?;
                     write!(f, "\n")?;
                 }
                 write!(f, ">>")
@@ -119,7 +119,7 @@ impl fmt::Display for PdfObject {
                     write!(f, "\t")?;
                     name.fmt(f)?;
                     write!(f, "\n\t\t")?;
-                    nkm.get(name).unwrap().unwrap().fmt(f)?;
+                    nkm.get(name).unwrap().fmt(f)?;
                     write!(f, "\n")?;
                 }
                 write!(f, ">>")
@@ -197,7 +197,7 @@ impl NameMap {
         }
     }
 
-    pub fn of(values: Vec<PdfObject>) -> Result<Option<NameMap>, NameMapError> {
+    pub fn of(values: Vec<PdfObject>) -> Result<NameMap, NameMapError> {
         let mut map: NameMap = NameMap::new();
 
         if values.len() % 2 != 0 {
@@ -211,23 +211,20 @@ impl NameMap {
             }
         }
 
-        Ok(Some(map))
+        Ok(map)
     }
 
-    pub fn get(&self, k: PdfObject) -> Result<Option<PdfObject>, NameMapError> {
+    pub fn get(&self, k: PdfObject) -> Option<PdfObject> {
         match k {
             PdfObject::Name(x) => match self.map.get(&x) {
-                Some(ref p) => Ok(Some((*p).clone())),
-                None => Ok(None),
+                Some(ref p) => Some((*p).clone()),
+                None => None,
             },
-            _ => {
-                // we treat this as an error now: we could treat it as None-worthy...
-                Err(NameMapError::KeyNotPdfName)
-            }
+            _ => None
         }
     }
 
-    pub fn get2(&self, k: &[u8]) -> Result<Option<PdfObject>, NameMapError> {
+    pub fn get2(&self, k: &[u8]) -> Option<PdfObject> {
         self.get(PdfObject::Name(k.to_owned()))
     }
 
@@ -1122,7 +1119,7 @@ pub fn recognize_pdf_dictionary(i: &[u8]) -> IResult<&[u8], PdfObject> {
     )(i);
     match result {
         Ok((rest, vec_of_objects_for_namemap)) => match NameMap::of(vec_of_objects_for_namemap) {
-            Ok(Some(namemap)) => Ok((rest, PdfObject::Dictionary(namemap))),
+            Ok(namemap) => Ok((rest, PdfObject::Dictionary(namemap))),
             _ => Err(nom::Err::Failure((i, nom::error::ErrorKind::Many0))),
         },
         Err(err) => Err(err),
@@ -1210,22 +1207,22 @@ fn recognize_stream(i: &[u8], length: i64) -> IResult<&[u8], Vec<u8>> {
 pub fn recognize_pdf_stream(i: &[u8]) -> IResult<&[u8], PdfObject> {
     match recognize_pdf_dictionary(i) {
         Ok((rest, PdfObject::Dictionary(dictionary))) => match dictionary.get2(b"Length") {
-            Ok(Some(PdfObject::Integer(length))) => match recognize_stream(rest, length) {
+            Some(PdfObject::Integer(length)) => match recognize_stream(rest, length) {
                 Ok((rest2, stream_bytes_vec)) => {
                     Ok((rest2, PdfObject::Stream(dictionary, stream_bytes_vec)))
                 }
                 Err(err) => Err(err),
             },
-            Ok(Some(PdfObject::IndirectReference {
+            Some(PdfObject::IndirectReference {
                 number: _n,
                 generation: _g,
-            })) => match recognize_stream(rest, -1) {
+            }) => match recognize_stream(rest, -1) {
                 Ok((rest2, stream_bytes_vec)) => {
                     Ok((rest2, PdfObject::Stream(dictionary, stream_bytes_vec)))
                 }
                 Err(err) => Err(err),
             },
-            Ok(None) => Ok((rest, PdfObject::Dictionary(dictionary))),
+            None => Ok((rest, PdfObject::Dictionary(dictionary))),
             _ => Err(nom::Err::Failure((i, nom::error::ErrorKind::Many0))),
         },
         Err(err) => Err(err),
@@ -1515,7 +1512,7 @@ mod tests {
     #[test]
     fn name_map_test() {
         match NameMap::new().get(PdfObject::Name(b"A"[..].to_owned())) {
-            Ok(None) => {}
+            None => {}
             _ => {
                 assert_eq!(3, 0);
             }
@@ -1525,8 +1522,8 @@ mod tests {
             PdfObject::Name(b"A"[..].to_owned()),
             PdfObject::Name(b"B"[..].to_owned()),
         ]) {
-            Ok(Some(n)) => match n.get(PdfObject::Name(b"A"[..].to_owned())) {
-                Ok(Some(x)) => {
+            Ok(n) => match n.get(PdfObject::Name(b"A"[..].to_owned())) {
+                Some(x) => {
                     assert_eq!(x, PdfObject::Name(b"B"[..].to_owned()));
                 }
                 _ => {
@@ -1542,8 +1539,8 @@ mod tests {
             PdfObject::Name(b"A"[..].to_owned()),
             PdfObject::Name(b"B"[..].to_owned()),
         ]) {
-            Ok(Some(n)) => match n.get2(b"A") {
-                Ok(Some(x)) => {
+            Ok(n) => match n.get2(b"A") {
+                Some(x) => {
                     assert_eq!(x, PdfObject::Name(b"B"[..].to_owned()));
                 }
                 _ => {
@@ -1561,9 +1558,9 @@ mod tests {
             PdfObject::Name(b"A"[..].to_owned()),
             PdfObject::Name(b"C"[..].to_owned()),
         ]) {
-            Ok(Some(n)) => {
+            Ok(n) => {
                 match n.get(PdfObject::Name(b"A"[..].to_owned())) {
-                    Ok(Some(x)) => {
+                    Some(x) => {
                         assert_eq!(x, PdfObject::Name(b"C"[..].to_owned()));
                     }
                     _ => {
@@ -1579,13 +1576,10 @@ mod tests {
         }
 
         match NameMap::of(vec![PdfObject::Name(b"A"[..].to_owned())]) {
-            Ok(Some(_n)) => {
+            Ok(_n) => {
                 assert_eq!(8, 0);
             }
             Err(_x) => {}
-            _ => {
-                assert_eq!(9, 0);
-            }
         }
     }
 
@@ -1990,12 +1984,12 @@ mod tests {
                 PdfObject::Dictionary( NameMap::of(vec![
                     PdfObject::Name( b"a"[..].to_owned()),
                     PdfObject::Array( vec![PdfObject::Integer(1), PdfObject::Integer(2),PdfObject::Integer(3) ])
-                ]).unwrap().unwrap() ),
+                ]).unwrap() ),
 
                 PdfObject::Dictionary( NameMap::of(vec![
                     PdfObject::Name( b"b"[..].to_owned()),
                     PdfObject::IndirectReference { number: 1, generation: 2 }
-                ]).unwrap().unwrap() ),
+                ]).unwrap() ),
             ])
         ),
 
@@ -2037,7 +2031,7 @@ mod tests {
                             PdfObject::Name(b"Filter"[..].to_owned()),
                             PdfObject::Name(b"FlateDecode"[..].to_owned()),
                         ]
-                    ).unwrap().unwrap()
+                    ).unwrap()
                 )),
         rd_1: (b"<< >>", PdfObject::Dictionary( NameMap::new() )),
         rd_1a: (b"<<>>", PdfObject::Dictionary( NameMap::new() )),
@@ -2046,7 +2040,7 @@ mod tests {
                                         PdfObject::Name( b"yo"[..].to_owned()),
                                         PdfObject::Integer( 1 )
                                     ]
-                                ).unwrap().unwrap() )),
+                                ).unwrap() )),
         rd_3: (b"<</a<</a<</a [1]>>>>>>",
 
                     PdfObject::Dictionary(
@@ -2063,13 +2057,13 @@ mod tests {
                                                         PdfObject::Name( b"a"[..].to_owned()),
                                                         PdfObject::Array( vec![PdfObject::Integer(1) ])
                                                     ]
-                                                ).unwrap().unwrap()
+                                                ).unwrap()
                                             )
                                         ]
-                                    ).unwrap().unwrap()
+                                    ).unwrap()
                                 )
                             ]
-                        ).unwrap().unwrap()
+                        ).unwrap()
                     )
 
                 ),
@@ -2088,13 +2082,13 @@ mod tests {
                                                         PdfObject::Name( b"a"[..].to_owned()),
                                                         PdfObject::Integer(1)
                                                     ]
-                                                ).unwrap().unwrap()
+                                                ).unwrap()
                                             )
                                         ]
-                                    ).unwrap().unwrap()
+                                    ).unwrap()
                                 )
                             ]
-                        ).unwrap().unwrap()
+                        ).unwrap()
                     )
         ),
         rd_5: (b"<</a<</a<abcdef>>>>>",
@@ -2108,10 +2102,10 @@ mod tests {
                                             PdfObject::Name( b"a"[..].to_owned()),
                                             PdfObject::String( b"\xAB\xCD\xEF"[..].to_owned() )
                                         ]
-                                    ).unwrap().unwrap()
+                                    ).unwrap()
                                 )
                             ]
-                        ).unwrap().unwrap()
+                        ).unwrap()
                     )
 
         ),
@@ -2126,10 +2120,10 @@ mod tests {
                                             PdfObject::Name( b"a"[..].to_owned()),
                                             PdfObject::String( b"\xAB\xCD\xEF"[..].to_owned() )
                                         ]
-                                    ).unwrap().unwrap()
+                                    ).unwrap()
                                 )
                             ]
-                        ).unwrap().unwrap()
+                        ).unwrap()
                     )
         ),
         rd_7: (b"<< /BG2 /Default /OP true /OPM 1 /SA false /SM 0.02 /Type /ExtGState /UCR2 /Default /op true >>\n",
@@ -2153,7 +2147,7 @@ mod tests {
                         PdfObject::Name( b"op"[..].to_owned()),
                         PdfObject::Boolean(true),
                     ]
-                ).unwrap().unwrap()
+                ).unwrap()
             )
         ),
     }
@@ -2237,13 +2231,13 @@ mod tests {
         rsot_1: (b"<< >>", PdfObject::Dictionary( NameMap::new() )), // because if you dont have a Length you're just a dictionary
         rsot_2: (b"<< /Length 20 >>\nstream\n01234567890123456789\nendstream\n",
             PdfObject::Stream(
-                NameMap::of( vec![PdfObject::Name(b"Length"[..].to_owned()), PdfObject::Integer(20)] ).unwrap().unwrap(),
+                NameMap::of( vec![PdfObject::Name(b"Length"[..].to_owned()), PdfObject::Integer(20)] ).unwrap(),
                 b"01234567890123456789"[..].to_owned()
             )
         ),
         rsot_3: (b"<< /Length 20 >>\r\nstream\r\n01234567890123456789\r\nendstream\r\n",
             PdfObject::Stream(
-                NameMap::of( vec![PdfObject::Name(b"Length"[..].to_owned()), PdfObject::Integer(20)] ).unwrap().unwrap(),
+                NameMap::of( vec![PdfObject::Name(b"Length"[..].to_owned()), PdfObject::Integer(20)] ).unwrap(),
                 b"01234567890123456789"[..].to_owned()
             )
         ),
@@ -2255,7 +2249,7 @@ mod tests {
                         PdfObject::IndirectReference{ number: 10, generation: 0},
                         PdfObject::Name(b"Filter"[..].to_owned()),
                         PdfObject::Name(b"FlateDecode"[..].to_owned()),
-                    ] ).unwrap().unwrap(),
+                    ] ).unwrap(),
                 b"01234567890123456789"[..].to_owned()
             )
         ),
@@ -2267,7 +2261,7 @@ mod tests {
                         PdfObject::IndirectReference{ number: 10, generation: 0},
                         PdfObject::Name(b"Filter"[..].to_owned()),
                         PdfObject::Name(b"FlateDecode"[..].to_owned()),
-                    ] ).unwrap().unwrap(),
+                    ] ).unwrap(),
                 b"01234567890123456789"[..].to_owned()
             )
         ),
@@ -2279,7 +2273,7 @@ mod tests {
                         PdfObject::IndirectReference{ number: 10, generation: 0},
                         PdfObject::Name(b"Filter"[..].to_owned()),
                         PdfObject::Name(b"FlateDecode"[..].to_owned()),
-                    ] ).unwrap().unwrap(),
+                    ] ).unwrap(),
                 b"01234567890123456789\r\n"[..].to_owned()
             )
         ),
@@ -2291,7 +2285,7 @@ mod tests {
                         PdfObject::IndirectReference{ number: 10, generation: 0},
                         PdfObject::Name(b"Filter"[..].to_owned()),
                         PdfObject::Name(b"FlateDecode"[..].to_owned()),
-                    ] ).unwrap().unwrap(),
+                    ] ).unwrap(),
                 b"0123456\n7890123456789"[..].to_owned()
             )
         ),
@@ -2310,9 +2304,6 @@ mod tests {
                 .1
         );
 
-        //        println!("whoa: {:#?}", recognize_pdf_indirect_object(
-        //            b"19 0 obj\n<< /BG2 /Default /OP true /OPM 1 /SA false /SM 0.02 /Type /ExtGState /UCR2 /Default /op true >>\nendobj\n".as_bytes()
-        //        ));
     }
 
     #[test]
@@ -2498,7 +2489,7 @@ mod tests {
                                 ]
                             ),
                         ]
-                    ).unwrap().unwrap()
+                    ).unwrap()
                 )
             )),
             recognize_pdf_old_style_trailer(b"trailer\n<</Size 22\n/Root 2 0 R\n/Info 1 0 R\n/ID [<81b14aafa313db63dbd6f981e49f94f4>\n<81b14aafa313db63dbd6f981e49f94f4>\n] >>\nstartxref\n18799\n%%EOF\n")

@@ -52,15 +52,14 @@ pub fn decode(input: &Vec<u8>, stream_dictionary: &NameMap) -> Result<Vec<u8>, D
     }
 
     match stream_dictionary.get2(filter_name) {
-        Ok(Some(PdfObject::Array(vec_of_filter_names))) => {
+        Some(PdfObject::Array(vec_of_filter_names)) => {
             filters.extend(vec_of_filter_names);
         }
-        Ok(Some(PdfObject::Name(name_vec))) => {
+        Some(PdfObject::Name(name_vec)) => {
             filters.push(PdfObject::Name(name_vec.clone()));
         }
-        Ok(Some(anything_else)) => { return Err(DecodingResponse::InvalidFilterSpecification); } // error!
-        Ok(None) => {} // no filters, so we'll do an identity
-        Err(err) => { return Err(DecodingResponse::Ugh); } // error of some weird kind probably having to do with the stream_dictionary
+        Some(anything_else) => { return Err(DecodingResponse::InvalidFilterSpecification); } // error!
+        None => {} // no filters, so we'll do an identity
     }
 
     // no filters: send it back.
@@ -69,15 +68,14 @@ pub fn decode(input: &Vec<u8>, stream_dictionary: &NameMap) -> Result<Vec<u8>, D
     }
 
     match stream_dictionary.get2(decode_param_name) {
-        Ok(Some(PdfObject::Array(vec_of_decode_param_dictionaries))) => {
+        Some(PdfObject::Array(vec_of_decode_param_dictionaries)) => {
             decode_params.extend(vec_of_decode_param_dictionaries);
         }
-        Ok(Some(PdfObject::Dictionary(decode_name_map))) => {
+        Some(PdfObject::Dictionary(decode_name_map)) => {
             decode_params.push(PdfObject::Dictionary(decode_name_map.clone()));
         }
-        Ok(Some(anything_else)) => { return Err(DecodingResponse::InvalidDecodeParamsSpecification); }
-        Ok(None) => {} // no decode params.
-        Err(err) => { return Err(DecodingResponse::Ugh); }
+        Some(anything_else) => { return Err(DecodingResponse::InvalidDecodeParamsSpecification); }
+        None => {} // no decode params.
     }
 
     let mut current_result: Vec<u8> = input.clone();
@@ -282,7 +280,7 @@ mod tests {
     #[test]
     fn decode_dispatch_entry_point() {
         let input = b"hiya toots!\n".to_vec();
-        let map = NameMap::of(vec![PdfObject::Name(b"Length".to_vec()), PdfObject::Integer(12)]).unwrap().unwrap();
+        let map = NameMap::of(vec![PdfObject::Name(b"Length".to_vec()), PdfObject::Integer(12)]).unwrap();
 
         match decode(&input, &map) {
             Ok(retval) => {
@@ -297,7 +295,7 @@ mod tests {
         let input = b"9jqo^BlbD-BleB1DJ+*+F(f,q/0JhKF<GL>Cj@.4Gp$d7F!,L7@<6@)/0JDEF<G%<+EV:2F!,O<DJ+*.@<*K0@<6L(Df-\\0Ec5e;DffZ(EZee.Bl.9pF\"AGXBPCsi+DGm>@3BB/F*&OCAfu2/AKYi(DIb:@FD,*)+C]U=@3BN#EcYf8ATD3s@q?d$AftVqCh[NqF<G:8+EV:.+Cf>-FD5W8ARlolDIal(DId<j@<?3r@:F%a+D58'ATD4$Bl@l3De:,-DJs`8ARoFb/0JMK@qB4^F!,R<AKZ&-DfTqBG%G>uD.RTpAKYo'+CT/5+Cei#DII?(E,9)oF*2M7/c~>".to_vec();
         let map = NameMap::of(vec![
             PdfObject::Name(b"Filter".to_vec()), PdfObject::Name(b"ASCII85Decode".to_vec()),
-            PdfObject::Name(b"Length".to_vec()), PdfObject::Integer(341)]).unwrap().unwrap();
+            PdfObject::Name(b"Length".to_vec()), PdfObject::Integer(341)]).unwrap();
         let data = b"Man is distinguished, not only by his reason, but by this singular passion from other animals, which is a lust of the mind, that by a perseverance of delight in the continued and indefatigable generation of knowledge, exceeds the short vehemence of any carnal pleasure.".to_vec();
 
         match decode(&input, &map) {

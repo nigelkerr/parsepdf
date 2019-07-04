@@ -160,7 +160,7 @@ pub fn parse_pdf(i: &[u8], file_len: u64) -> Result<PdfFile, PdfError> {
                 match recognize_pdf_old_style_trailer(rest) {
                     Ok((_rest2, PdfObject::Dictionary(trailer_map))) => {
                         match trailer_map.get2(b"Prev".as_bytes()) {
-                            Ok(Some(PdfObject::Integer(new_xref))) => {
+                            Some(PdfObject::Integer(new_xref)) => {
                                 let new_xref_u64: u64 = new_xref as u64;
 
                                 // these ought never loop
@@ -178,7 +178,7 @@ pub fn parse_pdf(i: &[u8], file_len: u64) -> Result<PdfFile, PdfError> {
                                 next_xref = new_xref_u64;
                                 pdf_file.trailers.push(trailer_map);
                             }
-                            Ok(Some(_other_pdf_object)) => {
+                            Some(_other_pdf_object) => {
                                 return Err(PdfError::TrailerPrevNotAnOffset);
                             }
                             _ => {
