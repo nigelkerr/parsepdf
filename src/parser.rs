@@ -1351,13 +1351,16 @@ fn recognize_pdf_cross_reference_subsection(i: &[u8]) -> IResult<&[u8], Vec<Xref
     }
 }
 
-pub fn recognize_pdf_cross_reference_section(i: &[u8]) -> IResult<&[u8], XrefTable> {
+pub fn recognize_pdf_old_style_cross_reference_section(i: &[u8]) -> IResult<&[u8], XrefTable> {
     match preceded(
         alt((tag(b"xref\r\n"), tag(b"xref\r"), tag(b"xref\n"))),
-        many1(recognize_pdf_cross_reference_subsection),
+        tuple((
+            many1(recognize_pdf_cross_reference_subsection),
+            opt(pdf_whitespace),
+        ))
     )(i)
     {
-        Ok((rest, vec_of_subsections)) => {
+        Ok((rest, (vec_of_subsections, _))) => {
             let mut xref: XrefTable = XrefTable::new();
 
             for subsection in &vec_of_subsections {
@@ -1375,22 +1378,31 @@ pub fn recognize_pdf_cross_reference_section(i: &[u8]) -> IResult<&[u8], XrefTab
     }
 }
 
-pub fn recognize_pdf_trailer(i: &[u8]) -> IResult<&[u8], (PdfObject, u64)> {
+pub fn recognize_pdf_trailer(i: &[u8]) -> IResult<&[u8], PdfObject> {
     match preceded(
         tuple((tag(b"trailer"), pdf_whitespace)),
         tuple((
             recognize_pdf_dictionary,
-            pdf_whitespace,
-            recognize_pdf_startxref
+            opt(pdf_whitespace),
         )),
     )(i)
     {
-        Ok((rest, (trailer_dict,  _, startxref_offset))) => {
-            Ok((rest, (trailer_dict, startxref_offset)))
+        Ok((rest, (trailer_dict,  _))) => {
+            Ok((rest, trailer_dict))
         }
         Err(err) => Err(err),
     }
 }
+
+
+/// Given that we are started at an offset that a startxref
+/// refers to, recognize either the old_style or xrefstm style
+/// cross-reference and trailer together.
+//pub fn recognize_pdf_cross_reference(i: &[u8]) -> IResult<&[u8], (XrefTable, PdfObject)> {
+//
+//    match
+//
+//}
 
 pub fn recognize_pdf_startxref(i: &[u8]) -> IResult<&[u8], u64> {
     match tuple((
@@ -1398,7 +1410,7 @@ pub fn recognize_pdf_startxref(i: &[u8]) -> IResult<&[u8], u64> {
         recognize_pdf_line_end,
         not_zero_padded_digits_to_u64,
         recognize_pdf_line_end,
-        opt(recognize_pdf_comment)
+        opt(recognize_pdf_comment), // ought we assert more here?  comments generally useless.
     ))(i) {
         Ok((rest, (_, _, startxref_offset, _, _))) => {
             Ok((rest, startxref_offset))
@@ -2361,7 +2373,7 @@ mod tests {
 
     #[test]
     fn test_xref_section() {
-        let (_bytes, xref) = recognize_pdf_cross_reference_section(
+        let (_bytes, xref) = recognize_pdf_old_style_cross_reference_section(
             b"xref\r\n0 6\r\n0000000003 65535 f \n0000000017 00000 n \n0000000081 00000 n \n0000000000 00007 f \n0000000331 00000 n \n0000000409 00000 n \n"
         ).unwrap();
 
@@ -2392,7 +2404,7 @@ mod tests {
         assert_eq!(Some(331u64), xref.offset_of(4));
         assert_eq!(Some(409u64), xref.offset_of(5));
 
-        let (_bytes, xref2) = recognize_pdf_cross_reference_section(
+        let (_bytes, xref2) = recognize_pdf_old_style_cross_reference_section(
             b"xref\n0 1\n0000000000 65535 f \n3 1\n0000025325 00000 n \n23 2\n0000025518 00002 n \n0000025635 00000 n \n30 1\n0000025777 00000 n \n"
         ).unwrap();
 
@@ -2430,8 +2442,8 @@ mod tests {
     fn test_trailer() {
         assert_eq!(
             Ok((
-                b"".as_bytes(),
-                (PdfObject::Dictionary(
+                b"startxref\n18799\n%%EOF\n".as_bytes(),
+                PdfObject::Dictionary(
                     NameMap::of(
                         vec![
                             PdfObject::Name(b"Size"[..].to_owned()),
@@ -2449,7 +2461,7 @@ mod tests {
                             ),
                         ]
                     ).unwrap().unwrap()
-                ), 18799u64)
+                )
             )),
             recognize_pdf_trailer(b"trailer\n<</Size 22\n/Root 2 0 R\n/Info 1 0 R\n/ID [<81b14aafa313db63dbd6f981e49f94f4>\n<81b14aafa313db63dbd6f981e49f94f4>\n] >>\nstartxref\n18799\n%%EOF\n")
         );

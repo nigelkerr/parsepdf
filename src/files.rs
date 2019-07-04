@@ -2,7 +2,7 @@ extern crate kmpsearch;
 
 use crate::parser::PdfObject;
 use crate::parser::XrefTable;
-use crate::{recognize_pdf_cross_reference_section, recognize_pdf_trailer, recognize_pdf_version, NameMap, PdfVersion, recognize_pdf_startxref};
+use crate::{recognize_pdf_old_style_cross_reference_section, recognize_pdf_trailer, recognize_pdf_version, NameMap, PdfVersion, recognize_pdf_startxref};
 use kmpsearch::Haystack;
 use nom::{IResult,AsBytes};
 
@@ -151,14 +151,14 @@ pub fn parse_pdf(i: &[u8], file_len: u64) -> Result<PdfFile, PdfError> {
 
     // try to march backwards through the file.
     loop {
-        match recognize_pdf_cross_reference_section(&input[next_xref as usize..]) {
+        match recognize_pdf_old_style_cross_reference_section(&input[next_xref as usize..]) {
             Ok((rest, xr)) => {
                 pdf_file.xref_offsets.push(next_xref);
                 pdf_file.xref_is_stream.push(xr.is_stream());
                 pdf_file.xref_tables.push(xr);
 
                 match recognize_pdf_trailer(rest) {
-                    Ok((_rest2, (PdfObject::Dictionary(trailer_map), _same_xref))) => {
+                    Ok((_rest2, PdfObject::Dictionary(trailer_map))) => {
                         match trailer_map.get2(b"Prev".as_bytes()) {
                             Ok(Some(PdfObject::Integer(new_xref))) => {
                                 let new_xref_u64: u64 = new_xref as u64;
