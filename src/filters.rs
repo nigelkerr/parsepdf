@@ -108,7 +108,7 @@ pub fn decode_jpx(_input: &Vec<u8>) -> Result<Vec<u8>, DecodingResponse> {
 }
 
 pub fn decode_crypt(_input: &Vec<u8>) -> Result<Vec<u8>, DecodingResponse> {
-    refuse_to_decode()
+    Err(DecodingResponse::NotImplementedYet)
 }
 
 #[cfg(test)]
