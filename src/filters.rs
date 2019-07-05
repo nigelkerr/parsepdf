@@ -58,7 +58,7 @@ pub fn decode(input: &Vec<u8>, stream_dictionary: &NameMap) -> Result<Vec<u8>, D
         Some(PdfObject::Name(name_vec)) => {
             filters.push(PdfObject::Name(name_vec.clone()));
         }
-        Some(anything_else) => { return Err(DecodingResponse::InvalidFilterSpecification); } // error!
+        Some(anything_else) => { return Err(DecodingResponse::InvalidFilterSpecification); }
         None => {} // no filters, so we'll do an identity
     }
 
@@ -81,7 +81,6 @@ pub fn decode(input: &Vec<u8>, stream_dictionary: &NameMap) -> Result<Vec<u8>, D
     let mut current_result: Vec<u8> = input.clone();
 
     for (pos, filt) in filters.iter().enumerate() {
-
         let decode_param = decode_params.get(pos);
 
         match filt {
@@ -127,8 +126,7 @@ pub fn decode_ascii85(input: &Vec<u8>) -> Result<Vec<u8>, DecodingResponse> {
     }
 }
 
-// this feels less clumsy than the full duplication, but still clumsy.
-// can't i recognize some other class as implementing a trait merely via interface?
+// so that i dont care which it is ugh
 trait LzwDecoder {
     fn dispatch_decode_bytes(&mut self, bytes: &[u8]) -> io::Result<(usize, &[u8])>;
 }
@@ -166,6 +164,11 @@ pub fn decode_lzw(input: &Vec<u8>, early: bool) -> Result<Vec<u8>, DecodingRespo
 }
 
 pub fn decode_flate(input: &Vec<u8>, decode_params: Option<&PdfObject>) -> Result<Vec<u8>, DecodingResponse> {
+
+    if let Some(PdfObject) = decode_params {
+        return Err(DecodingResponse::NotImplementedYet);
+    }
+
     match inflate::inflate_bytes_zlib(input.as_bytes()) {
         Ok(result) => { Ok(result) }
         Err(_s) => { Err(DecodingResponse::DecodeError) }

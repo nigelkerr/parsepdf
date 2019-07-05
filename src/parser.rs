@@ -1,5 +1,6 @@
 use nom::{
     branch::alt, bytes::complete::*, character::complete::digit1, character::*, combinator::*,
+    error::context,
     multi::*, sequence::*, AsBytes, IResult,
 };
 use std::collections::{BTreeMap, BTreeSet, HashMap};
@@ -237,7 +238,7 @@ impl NameMap {
 
     pub fn contains_key(&self, k: PdfObject) -> bool {
         match k {
-            PdfObject::Name(x) => { self.map.contains_key(&x) },
+            PdfObject::Name(x) => { self.map.contains_key(&x) }
             _ => { false }
         }
     }
@@ -370,21 +371,129 @@ impl fmt::Display for XrefTable {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum XrefTableEntry2 {
-    Free{ number: u32, generation: u16 },
+    Free { number: u32, generation: u16 },
     Uncompressed { number: u32, generation: u16, offset: u64 },
-    Compressed { number: u32, in_object_number: u32, index_in_stream: u32 },
+    InStream { number: u32, in_object_number: u32, index_in_stream: u32 },
 }
 
+impl XrefTableEntry2 {
+    pub fn get_number(&self) -> u32 {
+        match *self {
+            XrefTableEntry2::Free { number, generation } => number,
+            XrefTableEntry2::Uncompressed { number, generation, offset } => number,
+            XrefTableEntry2::InStream { number, in_object_number, index_in_stream } => number,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct XrefTable2 {
     free_objects: BTreeSet<u32>,
     free_object_generations: BTreeMap<u32, u16>,
     uncompressed_objects: BTreeSet<u32>,
     uncompressed_object_generations: BTreeMap<u32, u16>,
     uncompressed_object_offsets: BTreeMap<u32, u64>,
-    compressed_objects: BTreeSet<u32>,
-    compressed_objects_in_object: BTreeMap<u32,u32>,
-    compressed_objects_indexes: BTreeMap<u32, u32>,
+    in_stream_objects: BTreeSet<u32>,
+    in_stream_objects_in_object: BTreeMap<u32, u32>,
+    in_stream_objects_indexes: BTreeMap<u32, u32>,
+
+    present: BTreeSet<u32>,
+}
+
+impl XrefTable2 {
+    pub fn new() -> XrefTable2 {
+        XrefTable2 {
+            free_objects: BTreeSet::new(),
+            free_object_generations: BTreeMap::new(),
+            uncompressed_objects: BTreeSet::new(),
+            uncompressed_object_generations: BTreeMap::new(),
+            uncompressed_object_offsets: BTreeMap::new(),
+            in_stream_objects: BTreeSet::new(),
+            in_stream_objects_in_object: BTreeMap::new(),
+            in_stream_objects_indexes: BTreeMap::new(),
+
+            present: BTreeSet::new(),
+        }
+    }
+
+    pub fn add(&mut self, ref xref_entry: XrefTableEntry2) -> bool {
+        if self.present.contains(&xref_entry.get_number()) {
+            return false;
+        }
+        self.present.insert(xref_entry.get_number());
+
+        match xref_entry {
+            XrefTableEntry2::Free { number, generation } => {
+                self.free_objects.insert(*number);
+                self.free_object_generations.insert(*number, *generation);
+            }
+            XrefTableEntry2::Uncompressed { number, generation, offset } => {
+                self.uncompressed_objects.insert(*number);
+                self.uncompressed_object_generations.insert(*number, *generation);
+                self.uncompressed_object_offsets.insert(*number, *offset);
+            }
+            XrefTableEntry2::InStream { number, in_object_number, index_in_stream } => {
+                self.in_stream_objects.insert(*number);
+                self.in_stream_objects_in_object.insert(*number, *in_object_number);
+                self.in_stream_objects_indexes.insert(*number, *index_in_stream);
+            }
+        }
+
+        return true;
+    }
+
+    pub fn get(self, obj_number: u32) -> Option<XrefTableEntry2> {
+        if !self.present.contains(&obj_number) { return None; }
+
+        if self.free_objects.contains(&obj_number) {
+            return Some(XrefTableEntry2::Free { number: obj_number, generation: *self.free_object_generations.get(&obj_number).unwrap() });
+        }
+
+        if self.uncompressed_objects.contains(&obj_number) {
+            return Some(XrefTableEntry2::Uncompressed { number: obj_number, generation: *self.uncompressed_object_generations.get(&obj_number).unwrap(), offset: *self.uncompressed_object_offsets.get(&obj_number).unwrap() });
+        }
+
+        if self.in_stream_objects.contains(&obj_number) {
+            return Some(XrefTableEntry2::InStream { number: obj_number, in_object_number: *self.in_stream_objects_in_object.get(&obj_number).unwrap(), index_in_stream: *self.in_stream_objects_indexes.get(&obj_number).unwrap() });
+        }
+
+        None
+    }
+
+    pub fn all_numbers(&self) -> Vec<u32> {
+        self.present.iter().cloned().collect::<Vec<u32>>()
+    }
+
+    pub fn free(&self) -> Vec<u32> {
+        self.free_objects.iter().cloned().collect::<Vec<u32>>()
+    }
+
+    pub fn in_use(&self) -> Vec<u32> {
+        let mut tmp: Vec<u32> = self.uncompressed_objects.iter().cloned().collect::<Vec<u32>>();
+        tmp.extend(self.in_stream_objects.iter());
+        tmp
+    }
+
+    pub fn offset_of(&self, obj_number: u32) -> Option<u64> {
+        if self.present.contains(&obj_number) && self.uncompressed_objects.contains(&obj_number) {
+            return Some(*self.uncompressed_object_offsets.get(&obj_number).unwrap());
+        }
+        None
+    }
+
+    pub fn generation_of(&self, obj_number: u32) -> Option<u16> {
+        if self.present.contains(&obj_number) && self.uncompressed_objects.contains(&obj_number) {
+            return Some(*self.uncompressed_object_generations.get(&obj_number).unwrap());
+        } else if self.present.contains(&obj_number) && self.free_objects.contains(&obj_number) {
+            return Some(*self.free_object_generations.get(&obj_number).unwrap());
+        } else if self.present.contains(&obj_number) && self.in_stream_objects.contains(&obj_number) {
+            return Some(0);
+        }
+        None
+    }
+
 }
 
 
@@ -440,10 +549,10 @@ pub fn recognize_pdf_header(i: &[u8]) -> IResult<&[u8], PdfVersion> {
             opt(recognize_pdf_comment),
         )),
     )(i)
-    {
-        Ok((o, (pdf_version, _, _))) => return Ok((o, pdf_version)),
-        Err(x) => return Err(x),
-    }
+        {
+            Ok((o, (pdf_version, _, _))) => return Ok((o, pdf_version)),
+            Err(x) => return Err(x),
+        }
 }
 
 pub fn recognize_pdf_null(i: &[u8]) -> IResult<&[u8], PdfObject> {
@@ -524,11 +633,11 @@ pub fn recognize_pdf_integer(i: &[u8]) -> IResult<&[u8], PdfObject> {
             map(take_while1(is_digit), |b| bytes_to_i64(b)),
         )),
     )(i)
-    {
-        Ok((rest, (Some(sign), number))) => Ok((rest, PdfObject::Integer(number * sign))),
-        Ok((rest, (None, number))) => Ok((rest, PdfObject::Integer(number))),
-        Err(err) => Err(err),
-    }
+        {
+            Ok((rest, (Some(sign), number))) => Ok((rest, PdfObject::Integer(number * sign))),
+            Ok((rest, (None, number))) => Ok((rest, PdfObject::Integer(number))),
+            Err(err) => Err(err),
+        }
 }
 
 fn two_byte_slices_of_digits_to_f64(pre_digits: &[u8], post_digits: &[u8]) -> f64 {
@@ -559,17 +668,17 @@ pub fn recognize_pdf_float(i: &[u8]) -> IResult<&[u8], PdfObject> {
             )),
         )),
     )(i)
-    {
-        Ok((rest, (Some(sign), pre_digits, _decimal_point, post_digits))) => Ok((
-            rest,
-            PdfObject::Float(sign * two_byte_slices_of_digits_to_f64(pre_digits, post_digits)),
-        )),
-        Ok((rest, (None, pre_digits, _decimal_point, post_digits))) => Ok((
-            rest,
-            PdfObject::Float(two_byte_slices_of_digits_to_f64(pre_digits, post_digits)),
-        )),
-        Err(err) => Err(err),
-    }
+        {
+            Ok((rest, (Some(sign), pre_digits, _decimal_point, post_digits))) => Ok((
+                rest,
+                PdfObject::Float(sign * two_byte_slices_of_digits_to_f64(pre_digits, post_digits)),
+            )),
+            Ok((rest, (None, pre_digits, _decimal_point, post_digits))) => Ok((
+                rest,
+                PdfObject::Float(two_byte_slices_of_digits_to_f64(pre_digits, post_digits)),
+            )),
+            Err(err) => Err(err),
+        }
 }
 
 #[inline]
@@ -642,11 +751,11 @@ pub fn recognize_asciihex_hexadecimal_string(i: &[u8]) -> IResult<&[u8], Vec<u8>
             tag(b">"),
         ),
     )(i)
-    {
-        Ok((_rest, Some(v))) => Ok((_rest, v)),
-        Ok((rest, None)) => Err(nom::Err::Error((rest, nom::error::ErrorKind::TooLarge))),
-        Err(err) => Err(err),
-    }
+        {
+            Ok((_rest, Some(v))) => Ok((_rest, v)),
+            Ok((rest, None)) => Err(nom::Err::Error((rest, nom::error::ErrorKind::TooLarge))),
+            Err(err) => Err(err),
+        }
 }
 
 pub fn recognize_pdf_hexadecimal_string(i: &[u8]) -> IResult<&[u8], PdfObject> {
@@ -662,17 +771,18 @@ pub fn recognize_pdf_hexadecimal_string(i: &[u8]) -> IResult<&[u8], PdfObject> {
             ),
         ),
     )(i)
-    {
-        Ok((rest, Some(v))) => Ok((rest, PdfObject::String(v))),
-        Ok((rest, None)) => Err(nom::Err::Error((rest, nom::error::ErrorKind::TooLarge))),
-        Err(err) => Err(err),
-    }
+        {
+            Ok((rest, Some(v))) => Ok((rest, PdfObject::String(v))),
+            Ok((rest, None)) => Err(nom::Err::Error((rest, nom::error::ErrorKind::TooLarge))),
+            Err(err) => Err(err),
+        }
 }
 
 #[inline]
 fn can_be_in_ascii85_string(chr: u8) -> bool {
     is_ascii85_digit(chr) || is_pdf_whitespace(chr)
 }
+
 #[inline]
 fn is_ascii85_digit(chr: u8) -> bool {
     (chr >= 0x21 && chr <= 0x75) || chr == 0x7A
@@ -766,31 +876,33 @@ pub fn recognize_ascii85_string(i: &[u8]) -> IResult<&[u8], Vec<u8>> {
             tag(b"~>"),
         ),
     )(i)
-    {
-        Ok((rest, Some(v))) => Ok((rest, v)),
-        Ok((rest, None)) => Err(nom::Err::Error((rest, nom::error::ErrorKind::TooLarge))),
-        Err(err) => Err(err),
-    }
+        {
+            Ok((rest, Some(v))) => Ok((rest, v)),
+            Ok((rest, None)) => Err(nom::Err::Error((rest, nom::error::ErrorKind::TooLarge))),
+            Err(err) => Err(err),
+        }
 }
 
 fn below_128(chr: u8) -> bool { chr < 0x80 }
+
 fn above_128(chr: u8) -> bool { chr > 0x80 }
 
 fn rel_length_below_128(i: &[u8]) -> IResult<&[u8], Vec<u8>> {
-    let taken = map(take_while_m_n(1usize, 1usize, below_128), |v: &[u8]| { v[0] } )(i)?;
+    let taken = map(take_while_m_n(1usize, 1usize, below_128), |v: &[u8]| { v[0] })(i)?;
     if let (rest, length) = taken {
-        match map(take((length+1) as usize), |slice: &[u8]| { slice.to_vec() })(rest) {
+        match map(take((length + 1) as usize), |slice: &[u8]| { slice.to_vec() })(rest) {
             Ok((rest2, v)) => { return Ok((rest2, v)); }
             Err(err) => { return Err(err); }
         }
     }
     return Err(nom::Err::Error((i, nom::error::ErrorKind::TooLarge)));
 }
+
 fn rel_length_above_128(i: &[u8]) -> IResult<&[u8], Vec<u8>> {
-    let taken = map(take_while_m_n(1usize, 1usize, above_128), |v: &[u8]| { v[0] } )(i)?;
+    let taken = map(take_while_m_n(1usize, 1usize, above_128), |v: &[u8]| { v[0] })(i)?;
     if let (rest, length) = taken {
         match map(take(1usize), |v: &[u8]| { vec![v[0]; ((257 as u16) - (length as u16)) as usize] })(rest) {
-            Ok((rest2, v)) => { return Ok((rest2, v)); },
+            Ok((rest2, v)) => { return Ok((rest2, v)); }
             Err(err) => { return Err(err); }
         }
     }
@@ -803,14 +915,14 @@ pub fn recognize_rle_sequence(i: &[u8]) -> IResult<&[u8], Vec<u8>> {
             alt((
                 complete(rel_length_below_128),
                 complete(rel_length_above_128)
-                )),
+            )),
             Vec::new(),
             |mut accum: Vec<u8>, item: Vec<u8>| {
                 accum.extend(&item);
                 accum
-            }
+            },
         ),
-        tag(b"\x80")
+        tag(b"\x80"),
     )(i)
 }
 
@@ -837,10 +949,10 @@ fn three_digit_octal(i: &[u8]) -> IResult<&[u8], u8> {
             |o: &[u8]| (from_octal(o[0]) * 8) + from_octal(o[1]),
         ),
     ))(i)
-    {
-        Ok((rest, (hi, lo))) => Ok((rest, hi + lo)),
-        Err(err) => Err(err),
-    }
+        {
+            Ok((rest, (hi, lo))) => Ok((rest, hi + lo)),
+            Err(err) => Err(err),
+        }
 }
 
 fn two_digit_octal(i: &[u8]) -> IResult<&[u8], u8> {
@@ -876,10 +988,10 @@ fn recognize_valid_escapes_from_string_literal(i: &[u8]) -> IResult<&[u8], Vec<u
             map(tag(b"\\"), |_| 0x5cu8),
         )),
     ))(i)
-    {
-        Ok((rest, (_bs, bv))) => Ok((rest, vec![bv])),
-        Err(err) => Err(err),
-    }
+        {
+            Ok((rest, (_bs, bv))) => Ok((rest, vec![bv])),
+            Err(err) => Err(err),
+        }
 }
 
 fn recognize_elidable_line_ending_from_string_literal(i: &[u8]) -> IResult<&[u8], Vec<u8>> {
@@ -920,16 +1032,16 @@ fn recognize_recursive_balanced_parenthetical_in_string_literal(
         tag(b"("),
         terminated(recognize_string_literal_body, tag(b")")),
     )(i)
-    {
-        Ok((rest, body)) => {
-            let mut result_vec: Vec<u8> = Vec::new();
-            result_vec.extend_from_slice(b"(");
-            result_vec.extend_from_slice(&body);
-            result_vec.extend_from_slice(b")");
-            Ok((rest, result_vec))
+        {
+            Ok((rest, body)) => {
+                let mut result_vec: Vec<u8> = Vec::new();
+                result_vec.extend_from_slice(b"(");
+                result_vec.extend_from_slice(&body);
+                result_vec.extend_from_slice(b")");
+                Ok((rest, result_vec))
+            }
+            Err(err) => Err(err),
         }
-        Err(err) => Err(err),
-    }
 }
 
 fn recognize_string_literal_body(i: &[u8]) -> IResult<&[u8], Vec<u8>> {
@@ -958,10 +1070,10 @@ pub fn recognize_pdf_literal_string(i: &[u8]) -> IResult<&[u8], PdfObject> {
             terminated(recognize_string_literal_body, tag(b")")),
         ),
     )(i)
-    {
-        Ok((rest, v)) => Ok((rest, PdfObject::String(v))),
-        Err(err) => Err(err),
-    }
+        {
+            Ok((rest, v)) => Ok((rest, PdfObject::String(v))),
+            Err(err) => Err(err),
+        }
 }
 
 fn recognize_name_hex_encoded_byte(i: &[u8]) -> IResult<&[u8], Vec<u8>> {
@@ -969,11 +1081,11 @@ fn recognize_name_hex_encoded_byte(i: &[u8]) -> IResult<&[u8], Vec<u8>> {
         preceded(tag(b"#"), take_while_m_n(2usize, 2usize, is_hex_digit)),
         |x: &[u8]| vec_of_bytes_from_hex_string_literal(x),
     )(i)
-    {
-        Ok((rest, Some(v))) => Ok((rest, v)),
-        Ok((rest, None)) => Err(nom::Err::Error((rest, nom::error::ErrorKind::TooLarge))),
-        Err(err) => Err(err),
-    }
+        {
+            Ok((rest, Some(v))) => Ok((rest, v)),
+            Ok((rest, None)) => Err(nom::Err::Error((rest, nom::error::ErrorKind::TooLarge))),
+            Err(err) => Err(err),
+        }
 }
 
 fn is_possible_in_name_unencoded(chr: u8) -> bool {
@@ -1018,10 +1130,10 @@ fn recognize_digits_not_beginning_with_zero(i: &[u8]) -> IResult<&[u8], &[u8]> {
         pdf_whitespace,
         tuple((take_while1(is_non_zero_digit), take_while(is_digit))),
     )(i)
-    {
-        Ok((rest, (start, end))) => Ok((rest, &i[0..(start.len() + end.len())])),
-        Err(err) => Err(err),
-    }
+        {
+            Ok((rest, (start, end))) => Ok((rest, &i[0..(start.len() + end.len())])),
+            Err(err) => Err(err),
+        }
 }
 
 pub fn recognize_pdf_indirect_reference(i: &[u8]) -> IResult<&[u8], PdfObject> {
@@ -1034,16 +1146,16 @@ pub fn recognize_pdf_indirect_reference(i: &[u8]) -> IResult<&[u8], PdfObject> {
             tag(b" R"),
         )),
     )(i)
-    {
-        Ok((rest, (object_number, _, object_generation, _))) => Ok((
-            rest,
-            PdfObject::IndirectReference {
-                number: object_number,
-                generation: object_generation,
-            },
-        )),
-        Err(err) => Err(err),
-    }
+        {
+            Ok((rest, (object_number, _, object_generation, _))) => Ok((
+                rest,
+                PdfObject::IndirectReference {
+                    number: object_number,
+                    generation: object_generation,
+                },
+            )),
+            Err(err) => Err(err),
+        }
 }
 
 pub fn recognize_pdf_array(i: &[u8]) -> IResult<&[u8], PdfObject> {
@@ -1146,14 +1258,14 @@ fn recognize_stream(i: &[u8], length: i64) -> IResult<&[u8], Vec<u8>> {
                 pdf_whitespace,
             )),
         )(i)
-        {
-            Ok((rest, (_stream, stream_bytes, _line_end, _endstream, _ws))) => {
-                return Ok((rest, stream_bytes.to_vec()));
+            {
+                Ok((rest, (_stream, stream_bytes, _line_end, _endstream, _ws))) => {
+                    return Ok((rest, stream_bytes.to_vec()));
+                }
+                Err(err) => {
+                    return Err(err);
+                }
             }
-            Err(err) => {
-                return Err(err);
-            }
-        }
     }
 
     if length == 0 {
@@ -1166,14 +1278,14 @@ fn recognize_stream(i: &[u8], length: i64) -> IResult<&[u8], Vec<u8>> {
                 pdf_whitespace,
             )),
         )(i)
-        {
-            Ok((rest, (_stream, _apparently_opt_line_end, _endstream, _ws))) => {
-                return Ok((rest, vec![]));
+            {
+                Ok((rest, (_stream, _apparently_opt_line_end, _endstream, _ws))) => {
+                    return Ok((rest, vec![]));
+                }
+                Err(err) => {
+                    return Err(err);
+                }
             }
-            Err(err) => {
-                return Err(err);
-            }
-        }
     }
 
     // if we less than zero, do the silly seek forward looking for the first
@@ -1196,12 +1308,12 @@ fn recognize_stream(i: &[u8], length: i64) -> IResult<&[u8], Vec<u8>> {
             pdf_whitespace,
         )),
     )(i)
-    {
-        Ok((rest, (_stream, stream_bytes, _line_end_and_endstream, _ws))) => {
-            Ok((rest, stream_bytes.to_vec()))
+        {
+            Ok((rest, (_stream, stream_bytes, _line_end_and_endstream, _ws))) => {
+                Ok((rest, stream_bytes.to_vec()))
+            }
+            Err(err) => Err(err),
         }
-        Err(err) => Err(err),
-    }
 }
 
 pub fn recognize_pdf_stream(i: &[u8]) -> IResult<&[u8], PdfObject> {
@@ -1214,9 +1326,9 @@ pub fn recognize_pdf_stream(i: &[u8]) -> IResult<&[u8], PdfObject> {
                 Err(err) => Err(err),
             },
             Some(PdfObject::IndirectReference {
-                number: _n,
-                generation: _g,
-            }) => match recognize_stream(rest, -1) {
+                     number: _n,
+                     generation: _g,
+                 }) => match recognize_stream(rest, -1) {
                 Ok((rest2, stream_bytes_vec)) => {
                     Ok((rest2, PdfObject::Stream(dictionary, stream_bytes_vec)))
                 }
@@ -1257,20 +1369,20 @@ pub fn recognize_pdf_indirect_object(i: &[u8]) -> IResult<&[u8], PdfIndirectObje
             pdf_whitespace,
         )),
     )(i)
-    {
-        Ok((rest, (object_number, _, object_generation, _, _, object_itself, _, _, _))) => Ok((
-            rest,
-            PdfIndirectObject {
-                number: object_number,
-                generation: object_generation,
-                obj: object_itself,
-            },
-        )),
-        Err(err) => Err(err),
-    }
+        {
+            Ok((rest, (object_number, _, object_generation, _, _, object_itself, _, _, _))) => Ok((
+                rest,
+                PdfIndirectObject {
+                    number: object_number,
+                    generation: object_generation,
+                    obj: object_itself,
+                },
+            )),
+            Err(err) => Err(err),
+        }
 }
 
-fn recognize_pdf_cross_reference_entry(i: &[u8]) -> IResult<&[u8], XrefTableEntry> {
+fn recognize_pdf_cross_reference_entry(i: &[u8]) -> IResult<&[u8], XrefTableEntry2> {
     match tuple((
         map(
             take_while_m_n(10usize, 10usize, is_digit),
@@ -1288,101 +1400,109 @@ fn recognize_pdf_cross_reference_entry(i: &[u8]) -> IResult<&[u8], XrefTableEntr
         ),
         alt((tag(b"\r\n"), tag(b" \r"), tag(b" \n"))),
     ))(i)
-    {
-        Ok((rest, (offset, _, generation, _, in_use, _))) => {
-            match offset {
-                Err(err) => {
-                    return Err(err);
+        {
+            Ok((rest, (offset, _, generation, _, in_use, _))) => {
+                match offset {
+                    Err(err) => {
+                        return Err(err);
+                    }
+                    _ => {}
                 }
-                _ => {}
-            }
-            match generation {
-                Err(err) => {
-                    return Err(err);
+                match generation {
+                    Err(err) => {
+                        return Err(err);
+                    }
+                    _ => {}
                 }
-                _ => {}
+
+                if in_use {
+                    Ok((
+                        rest,
+                        XrefTableEntry2::Uncompressed { number: 0u32, generation: generation.unwrap().1, offset: offset.unwrap().1 }
+                    ))
+                } else {
+                    Ok((
+                        rest,
+                        XrefTableEntry2::Free { number: 0u32, generation: generation.unwrap().1 }
+                    ))
+                }
             }
-            Ok((
-                rest,
-                XrefTableEntry {
-                    number: 0u32,
-                    offset: offset.unwrap().1,
-                    generation: generation.unwrap().1,
-                    in_use: in_use,
-                },
-            ))
+            Err(err) => Err(err),
         }
-        Err(err) => Err(err),
+}
+
+fn set_object_number(xref_entry: &XrefTableEntry2, object_number: u32) -> XrefTableEntry2 {
+    match xref_entry {
+        XrefTableEntry2::Free { number, generation } => {
+            XrefTableEntry2::Free { number: object_number, generation: *generation }
+        }
+        XrefTableEntry2::Uncompressed { number, generation, offset } => {
+            XrefTableEntry2::Uncompressed { number: object_number, generation: *generation, offset: *offset }
+        }
+        XrefTableEntry2::InStream { number, in_object_number, index_in_stream } => {
+            XrefTableEntry2::InStream { number: object_number, in_object_number: *in_object_number, index_in_stream: *index_in_stream }
+        }
     }
 }
 
-fn recognize_pdf_cross_reference_subsection(i: &[u8]) -> IResult<&[u8], Vec<XrefTableEntry>> {
+fn recognize_pdf_cross_reference_subsection(i: &[u8]) -> IResult<&[u8], Vec<XrefTableEntry2>> {
     match tuple((
         digits_to_u32,
         tag(b" "),
         digits_to_usize,
         recognize_pdf_line_end,
     ))(i)
-    {
-        Ok((rest, (start_number, _, how_many_entries, _))) => {
-            match fold_many_m_n(
-                how_many_entries,
-                how_many_entries,
-                recognize_pdf_cross_reference_entry,
-                Vec::new(),
-                |mut acc: Vec<XrefTableEntry>, item| {
-                    acc.push(item);
-                    acc
-                },
-            )(rest)
-            {
-                Ok((rest, vec_of_entries)) => {
-                    let mut object_number: u32 = start_number;
-                    let mut final_vec: Vec<XrefTableEntry> = Vec::new();
-                    for xref in &vec_of_entries {
-                        final_vec.push(XrefTableEntry {
-                            number: object_number,
-                            generation: xref.generation,
-                            offset: xref.offset,
-                            in_use: xref.in_use,
-                        });
-                        object_number = object_number + 1;
-                    }
+        {
+            Ok((rest, (start_number, _, how_many_entries, _))) => {
+                match fold_many_m_n(
+                    how_many_entries,
+                    how_many_entries,
+                    recognize_pdf_cross_reference_entry,
+                    Vec::new(),
+                    |mut acc: Vec<XrefTableEntry2>, item| {
+                        acc.push(item);
+                        acc
+                    },
+                )(rest)
+                    {
+                        Ok((rest, vec_of_entries)) => {
+                            let mut object_number: u32 = start_number;
+                            let mut final_vec: Vec<XrefTableEntry2> = Vec::new();
+                            for xref_entry in &vec_of_entries {
+                                final_vec.push(set_object_number(xref_entry, object_number));
+                                object_number = object_number + 1;
+                            }
 
-                    Ok((rest, final_vec))
-                }
-                Err(err) => Err(err),
+                            Ok((rest, final_vec))
+                        }
+                        Err(err) => Err(err),
+                    }
             }
+            Err(err) => Err(err),
         }
-        Err(err) => Err(err),
-    }
 }
 
-pub fn recognize_pdf_old_style_cross_reference_section(i: &[u8]) -> IResult<&[u8], XrefTable> {
+pub fn recognize_pdf_old_style_cross_reference_section(i: &[u8]) -> IResult<&[u8], XrefTable2> {
     match preceded(
         alt((tag(b"xref\r\n"), tag(b"xref\r"), tag(b"xref\n"))),
         tuple((
             many1(recognize_pdf_cross_reference_subsection),
             opt(pdf_whitespace),
-        ))
+        )),
     )(i)
-    {
-        Ok((rest, (vec_of_subsections, _))) => {
-            let mut xref: XrefTable = XrefTable::new();
+        {
+            Ok((rest, (vec_of_subsections, _))) => {
+                let mut xref: XrefTable2 = XrefTable2::new();
 
-            for subsection in &vec_of_subsections {
-                for entry in subsection {
-                    if entry.in_use {
-                        xref.add_in_use(entry.number, entry.generation, entry.offset);
-                    } else {
-                        xref.add_free(entry.number, entry.generation);
+                for subsection in &vec_of_subsections {
+                    for xref_entry in subsection {
+                        xref.add(xref_entry.clone());
                     }
                 }
+                Ok((rest, xref))
             }
-            Ok((rest, xref))
+            Err(err) => Err(err),
         }
-        Err(err) => Err(err),
-    }
 }
 
 pub fn recognize_pdf_old_style_trailer(i: &[u8]) -> IResult<&[u8], PdfObject> {
@@ -1393,50 +1513,81 @@ pub fn recognize_pdf_old_style_trailer(i: &[u8]) -> IResult<&[u8], PdfObject> {
             opt(pdf_whitespace),
         )),
     )(i)
-    {
-        Ok((rest, (trailer_dict,  _))) => {
-            Ok((rest, trailer_dict))
+        {
+            Ok((rest, (trailer_dict, _))) => {
+                Ok((rest, trailer_dict))
+            }
+            Err(err) => Err(err),
         }
-        Err(err) => Err(err),
-    }
 }
 
-fn recognize_old_style_cross_reference(i: &[u8]) -> IResult<&[u8], (XrefTable, PdfObject)> {
+fn recognize_old_style_cross_reference(i: &[u8]) -> IResult<&[u8], (XrefTable2, PdfObject)> {
     tuple((
         recognize_pdf_old_style_cross_reference_section,
         recognize_pdf_old_style_trailer
-        ))(i)
+    ))(i)
 }
 
-// we will not reflect to the caller that we actually have an indirect stream
-// object here, and maybe that's okay for purposes.  we can also access it as
-// a normal indirect object.
-fn recognize_xrefstm_cross_reference(i: &[u8]) -> IResult<&[u8], (XrefTable, PdfObject)> {
 
-    match recognize_pdf_indirect_object(i) {
-        Ok((rest, PdfIndirectObject { number: number, generation: generation, obj: PdfObject::Stream(name_map, data)})) => {
-
-            let decoded_data = crate::filters::decode(&data, &name_map);
-            Err(nom::Err::Error((i, nom::error::ErrorKind::TooLarge)))
-
-        },
-        Ok((_rest, unexpected)) => {
-            println!("expected indirect stream object, got {:#?} instead", unexpected);
-            // TODO compose errors better ugh
-            Err(nom::Err::Error((i, nom::error::ErrorKind::TooLarge)))
-        }
-        Err(err) => { Err(err) }
-    }
-}
+//// we will not reflect to the caller that we actually have an indirect stream
+//// object here, and maybe that's okay for purposes.  we can also access it as
+//// a normal indirect object (probably once we've decoded this stream and made
+//// an xref table...).
+//fn recognize_xrefstm_cross_reference(i: &[u8]) -> IResult<&[u8], (XrefTable2, PdfObject)> {
+//    match recognize_pdf_indirect_object(i) {
+//        Ok((rest, PdfIndirectObject { number: number, generation: generation, obj: PdfObject::Stream(name_map, data) })) => {
+//
+//            let size: u32 = name_map.get2(b"Size".as_bytes())
+//
+//            // think about this /W and contents as a test case for validation patterns ugh
+//            if !name_map.contains_key2(b"W".as_bytes()) {
+//                return Err(nom::Err::Error((i, nom::error::ErrorKind::TooLarge)));
+//            }
+//            let mut w_params: Vec<i64> = Vec::new();
+//            match name_map.get2(b"W".as_bytes()) {
+//                Some(PdfObject::Array(vec_of_three_integers)) => {
+//                    if vec_of_three_integers.len() != 3 {
+//                        return Err(nom::Err::Error((i, nom::error::ErrorKind::TooLarge)));
+//                    }
+//                    for item in vec_of_three_integers.iter() {
+//                        match item {
+//                            PdfObject::Integer(integer) => { w_params.push(*integer); }
+//                            _ => { return Err(nom::Err::Error((i, nom::error::ErrorKind::TooLarge))); }
+//                        }
+//                    }
+//                }
+//                _ => {
+//                    return Err(nom::Err::Error((i, nom::error::ErrorKind::TooLarge)));
+//                }
+//            }
+//
+//            // because the relevant values in this map are required to be direct,
+//            // we dont need to fiddle with this map.
+//            let decoded_data = crate::filters::decode(&data, &name_map);
+//            // now /W tells us what to do with these bytes
+//
+//            if decoded_data.len()
+//
+//        }
+//        Ok((_rest, unexpected)) => {
+//            println!("expected indirect stream object, got {:#?} instead", unexpected);
+//            // TODO compose errors better ugh
+//            Err(nom::Err::Error((i, nom::error::ErrorKind::TooLarge)))
+//        }
+//        Err(err) => { Err(err) }
+//    }
+//}
 
 /// Given that we are started at an offset that a startxref
 /// refers to, recognize either the old_style or xrefstm style
 /// cross-reference and trailer together.
-pub fn recognize_pdf_cross_reference(i: &[u8]) -> IResult<&[u8], (XrefTable, PdfObject)> {
-    alt((
+pub fn recognize_pdf_cross_reference(i: &[u8]) -> IResult<&[u8], (XrefTable2, PdfObject)> {
+    context("recognize_pdf_cross_reference",
+//            alt((
         recognize_old_style_cross_reference,
-        recognize_xrefstm_cross_reference,
-    ))(i)
+//        recognize_xrefstm_cross_reference,
+//    ))
+    )(i)
 }
 
 pub fn recognize_pdf_startxref(i: &[u8]) -> IResult<&[u8], u64> {
@@ -1449,7 +1600,7 @@ pub fn recognize_pdf_startxref(i: &[u8]) -> IResult<&[u8], u64> {
     ))(i) {
         Ok((rest, (_, _, startxref_offset, _, _))) => {
             Ok((rest, startxref_offset))
-        },
+        }
         Err(err) => { Err(err) }
     }
 }
@@ -2303,7 +2454,6 @@ mod tests {
                 .unwrap()
                 .1
         );
-
     }
 
     #[test]
@@ -2311,11 +2461,10 @@ mod tests {
         assert_eq!(
             Ok((
                 b"".as_bytes(),
-                XrefTableEntry {
+                XrefTableEntry2::Uncompressed {
                     number: 0u32,
                     offset: 200u64,
                     generation: 1u16,
-                    in_use: true,
                 }
             )),
             recognize_pdf_cross_reference_entry(b"0000000200 00001 n \n")
@@ -2323,11 +2472,9 @@ mod tests {
         assert_eq!(
             Ok((
                 b"".as_bytes(),
-                XrefTableEntry {
+                XrefTableEntry2::Free {
                     number: 0u32,
-                    offset: 400u64,
                     generation: 3u16,
-                    in_use: false,
                 }
             )),
             recognize_pdf_cross_reference_entry(b"0000000400 00003 f \n")
@@ -2347,17 +2494,15 @@ mod tests {
             Ok((
                 b"".as_bytes(),
                 vec![
-                    XrefTableEntry {
+                    XrefTableEntry2::Uncompressed {
                         number: 5,
                         generation: 2,
                         offset: 1,
-                        in_use: true,
                     },
-                    XrefTableEntry {
+                    XrefTableEntry2::Uncompressed {
                         number: 6,
                         generation: 6,
                         offset: 99,
-                        in_use: true,
                     },
                 ]
             )),
@@ -2370,17 +2515,15 @@ mod tests {
             Ok((
                 b"0000000999 00008 n \n".as_bytes(),
                 vec![
-                    XrefTableEntry {
+                    XrefTableEntry2::Uncompressed {
                         number: 5,
                         generation: 2,
                         offset: 1,
-                        in_use: true,
                     },
-                    XrefTableEntry {
+                    XrefTableEntry2::Uncompressed {
                         number: 6,
                         generation: 6,
                         offset: 99,
-                        in_use: true,
                     },
                 ]
             )),
@@ -2406,8 +2549,8 @@ mod tests {
             b"xref\r\n0 6\r\n0000000003 65535 f \n0000000017 00000 n \n0000000081 00000 n \n0000000000 00007 f \n0000000331 00000 n \n0000000409 00000 n \n"
         ).unwrap();
 
-        assert_eq!(4usize, xref.count_in_use());
-        assert_eq!(2usize, xref.count_free());
+        assert_eq!(4usize, xref.in_use().len());
+        assert_eq!(2usize, xref.free().len());
 
         for in_use_obj_num in xref.in_use() {
             assert!(
@@ -2437,8 +2580,8 @@ mod tests {
             b"xref\n0 1\n0000000000 65535 f \n3 1\n0000025325 00000 n \n23 2\n0000025518 00002 n \n0000025635 00000 n \n30 1\n0000025777 00000 n \n"
         ).unwrap();
 
-        assert_eq!(4usize, xref2.count_in_use());
-        assert_eq!(1usize, xref2.count_free());
+        assert_eq!(4usize, xref2.in_use().len());
+        assert_eq!(1usize, xref2.free().len());
 
         for in_use_obj_num in xref2.in_use() {
             assert!(

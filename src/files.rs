@@ -1,7 +1,7 @@
 extern crate kmpsearch;
 
 use crate::parser::PdfObject;
-use crate::parser::XrefTable;
+use crate::parser::{XrefTable2, XrefTableEntry2};
 use crate::{recognize_pdf_old_style_cross_reference_section, recognize_pdf_old_style_trailer, recognize_pdf_version, NameMap, PdfVersion, recognize_pdf_startxref};
 use kmpsearch::Haystack;
 use nom::{IResult,AsBytes};
@@ -42,9 +42,8 @@ pub struct PdfFile {
     // how many bytes does the PDF itself possibly take up?
     trailers: Vec<NameMap>,
     xref_offsets: Vec<u64>,
-    xref_is_stream: Vec<bool>,
-    xref_tables: Vec<XrefTable>,
-    master_xref_table: XrefTable,
+    xref_tables: Vec<XrefTable2>,
+    master_xref_table: XrefTable2,
 }
 
 impl PdfFile {
@@ -55,41 +54,23 @@ impl PdfFile {
             end_offset: 0,
             trailers: Vec::new(),
             xref_offsets: Vec::new(),
-            xref_is_stream: Vec::new(),
             xref_tables: Vec::new(),
-            master_xref_table: XrefTable::new(),
+            master_xref_table: XrefTable2::new(),
         }
     }
 
     pub fn populate_master_xref_table(&mut self) -> Result<(), PdfError> {
         for xt in self.xref_tables.iter() {
-            for in_use_obj in xt.in_use().iter() {
-                if !&self.master_xref_table.number_is_in_use(*in_use_obj)
-                    && !&self.master_xref_table.number_is_free(*in_use_obj)
-                {
-                    &self.master_xref_table.add_in_use(
-                        *in_use_obj,
-                        xt.generation_of(*in_use_obj).unwrap(),
-                        xt.offset_of(*in_use_obj).unwrap(),
-                    );
-                }
-            }
-
-            for free_obj in xt.free().iter() {
-                if !&self.master_xref_table.number_is_in_use(*free_obj)
-                    && !&self.master_xref_table.number_is_free(*free_obj)
-                {
-                    &self
-                        .master_xref_table
-                        .add_free(*free_obj, xt.generation_of(*free_obj).unwrap());
-                }
+            for &obj_number in xt.all_numbers().iter() {
+                let xref_enty: XrefTableEntry2 = (&xt).get(obj_number).unwrap();
+                self.master_xref_table.add(xref_enty);
             }
         }
 
         Ok(())
     }
 
-    pub fn master_xref_table(&self) -> &XrefTable {
+    pub fn master_xref_table(&self) -> &XrefTable2 {
         &self.master_xref_table
     }
 }
@@ -154,7 +135,6 @@ pub fn parse_pdf(i: &[u8], file_len: u64) -> Result<PdfFile, PdfError> {
         match recognize_pdf_old_style_cross_reference_section(&input[next_xref as usize..]) {
             Ok((rest, xr)) => {
                 pdf_file.xref_offsets.push(next_xref);
-                pdf_file.xref_is_stream.push(xr.is_stream());
                 pdf_file.xref_tables.push(xr);
 
                 match recognize_pdf_old_style_trailer(rest) {
@@ -220,8 +200,8 @@ mod tests {
                 assert_eq!(3, pdffile.xref_tables.len());
                 assert_eq!(PdfVersion::V1_0, pdffile.version);
 
-                assert_eq!(5, pdffile.master_xref_table.count_in_use());
-                assert_eq!(1, pdffile.master_xref_table.count_free());
+                assert_eq!(5, pdffile.master_xref_table.in_use().len());
+                assert_eq!(1, pdffile.master_xref_table.free().len());
             }
             Err(err) => {
                 println!("err: {:#?}", err);
