@@ -371,7 +371,7 @@ impl fmt::Display for XrefTable {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Copy)]
 pub enum XrefTableEntry2 {
     Free { number: u32, generation: u16 },
     Uncompressed { number: u32, generation: u16, offset: u64 },
@@ -466,6 +466,15 @@ impl XrefTable2 {
         self.present.iter().cloned().collect::<Vec<u32>>()
     }
 
+    pub fn all_entries(&self) -> Vec<XrefTableEntry2> {
+        let all_nums = &self.all_numbers();
+        let mut all_ents: Vec<XrefTableEntry2> = Vec::new();
+        for obj_num in all_nums.into_iter() {
+            all_ents.push(self.get(*obj_num).unwrap())
+        }
+        all_ents
+    }
+
     pub fn free(&self) -> Vec<u32> {
         self.free_objects.iter().cloned().collect::<Vec<u32>>()
     }
@@ -493,7 +502,6 @@ impl XrefTable2 {
         }
         None
     }
-
 }
 
 
@@ -889,24 +897,26 @@ fn above_128(chr: u8) -> bool { chr > 0x80 }
 
 fn rel_length_below_128(i: &[u8]) -> IResult<&[u8], Vec<u8>> {
     let taken = map(take_while_m_n(1usize, 1usize, below_128), |v: &[u8]| { v[0] })(i)?;
-    if let (rest, length) = taken {
-        match map(take((length + 1) as usize), |slice: &[u8]| { slice.to_vec() })(rest) {
-            Ok((rest2, v)) => { return Ok((rest2, v)); }
-            Err(err) => { return Err(err); }
-        }
+    let (rest, length) = taken;
+    match map(take((length + 1) as usize), |slice: &[u8]| { slice.to_vec() })(rest) {
+        Ok((rest2, v)) => { return Ok((rest2, v)); }
+        Err(err) => { return Err(err); }
     }
-    return Err(nom::Err::Error((i, nom::error::ErrorKind::TooLarge)));
 }
 
 fn rel_length_above_128(i: &[u8]) -> IResult<&[u8], Vec<u8>> {
     let taken = map(take_while_m_n(1usize, 1usize, above_128), |v: &[u8]| { v[0] })(i)?;
     if let (rest, length) = taken {
-        match map(take(1usize), |v: &[u8]| { vec![v[0]; ((257 as u16) - (length as u16)) as usize] })(rest) {
+
+        match map(take(1usize), |v: &[u8]| {
+            vec![v[0]; ((257 as u16) - (length as u16)) as usize]
+        })(rest) {
             Ok((rest2, v)) => { return Ok((rest2, v)); }
             Err(err) => { return Err(err); }
         }
+    } else {
+        return Err(nom::Err::Error((i, nom::error::ErrorKind::TooLarge)));
     }
-    return Err(nom::Err::Error((i, nom::error::ErrorKind::TooLarge)));
 }
 
 pub fn recognize_rle_sequence(i: &[u8]) -> IResult<&[u8], Vec<u8>> {
@@ -1584,7 +1594,7 @@ fn recognize_old_style_cross_reference(i: &[u8]) -> IResult<&[u8], (XrefTable2, 
 pub fn recognize_pdf_cross_reference(i: &[u8]) -> IResult<&[u8], (XrefTable2, PdfObject)> {
     context("recognize_pdf_cross_reference",
 //            alt((
-        recognize_old_style_cross_reference,
+            recognize_old_style_cross_reference,
 //        recognize_xrefstm_cross_reference,
 //    ))
     )(i)

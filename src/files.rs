@@ -61,9 +61,8 @@ impl PdfFile {
 
     pub fn populate_master_xref_table(&mut self) -> Result<(), PdfError> {
         for xt in self.xref_tables.iter() {
-            for &obj_number in xt.all_numbers().iter() {
-                let xref_enty: XrefTableEntry2 = (&xt).get(obj_number).unwrap();
-                self.master_xref_table.add(xref_enty);
+            for xref_entry in xt.all_entries().iter() {
+                self.master_xref_table.add(xref_entry.clone());
             }
         }
 
