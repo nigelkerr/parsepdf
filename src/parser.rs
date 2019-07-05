@@ -444,7 +444,7 @@ impl XrefTable2 {
         return true;
     }
 
-    pub fn get(self, obj_number: u32) -> Option<XrefTableEntry2> {
+    pub fn get(&self, obj_number: u32) -> Option<XrefTableEntry2> {
         if !self.present.contains(&obj_number) { return None; }
 
         if self.free_objects.contains(&obj_number) {
@@ -467,10 +467,11 @@ impl XrefTable2 {
     }
 
     pub fn all_entries(&self) -> Vec<XrefTableEntry2> {
-        let all_nums = &self.all_numbers();
+        let all_nums = self.all_numbers();
         let mut all_ents: Vec<XrefTableEntry2> = Vec::new();
-        for obj_num in all_nums.into_iter() {
-            all_ents.push(self.get(*obj_num).unwrap())
+        for obj_num in all_nums.iter() {
+            let option = self.get(*obj_num);
+            all_ents.push(option.unwrap())
         }
         all_ents
     }
