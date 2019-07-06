@@ -1,10 +1,13 @@
 extern crate kmpsearch;
 
 use crate::parser::PdfObject;
-use crate::parser::{XrefTable2};
-use crate::{recognize_pdf_cross_reference, recognize_pdf_version, NameMap, PdfVersion, recognize_pdf_startxref};
+use crate::parser::XrefTable2;
+use crate::{
+    recognize_pdf_cross_reference, recognize_pdf_startxref, recognize_pdf_version, NameMap,
+    PdfVersion,
+};
 use kmpsearch::Haystack;
-use nom::{AsBytes};
+use nom::AsBytes;
 
 quick_error! {
     #[derive(Debug)]
@@ -44,6 +47,12 @@ pub struct PdfFile {
     xref_offsets: Vec<u64>,
     xref_tables: Vec<XrefTable2>,
     master_xref_table: XrefTable2,
+}
+
+impl Default for PdfFile {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl PdfFile {
@@ -163,7 +172,6 @@ pub fn parse_pdf(i: &[u8], file_len: u64) -> Result<PdfFile, PdfError> {
                         break;
                     }
                 }
-
             }
             Err(_err) => {
                 return Err(PdfError::TrailerPuzzlingStructure);
@@ -202,5 +210,4 @@ mod tests {
             }
         }
     }
-
 }

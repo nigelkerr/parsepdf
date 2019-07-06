@@ -10,6 +10,4 @@
 /// § 7.5.8 Cross-reference Streams, are all of an indirect stream-object,
 /// a file-trailer dictionary, and contain cross-reference data that can
 /// describe free objects, objects in object-streams, and plain old objects.
-pub struct XRef {
-
-}
+pub struct XRef {}

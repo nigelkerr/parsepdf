@@ -1,10 +1,13 @@
 extern crate inflate;
 extern crate lzw;
 
-use crate::{recognize_asciihex_hexadecimal_string, recognize_ascii85_string, recognize_rle_sequence, NameMap, PdfObject};
+use crate::{
+    recognize_ascii85_string, recognize_asciihex_hexadecimal_string, recognize_rle_sequence,
+    NameMap, PdfObject,
+};
 
+use nom::AsBytes;
 use std::io;
-use nom::{AsBytes};
 
 quick_error! {
     #[derive(Debug)]
@@ -34,8 +37,7 @@ quick_error! {
 /// even if we didn't decode anything, return new Vec<u8>.
 /// this also doesn't care about the stream having been external: caller brings
 /// a stream they want decoded and its dictionary.
-pub fn decode(input: &Vec<u8>, stream_dictionary: &NameMap) -> Result<Vec<u8>, DecodingResponse> {
-
+pub fn decode(input: &[u8], stream_dictionary: &NameMap) -> Result<Vec<u8>, DecodingResponse> {
     // TODO do us a sanity check on /Length
 
     // we might have zero or more filters applied.
@@ -43,12 +45,19 @@ pub fn decode(input: &Vec<u8>, stream_dictionary: &NameMap) -> Result<Vec<u8>, D
 
     let mut filters: Vec<PdfObject> = Vec::new();
     let mut decode_params: Vec<PdfObject> = Vec::new();
-    let mut filter_name = b"Filter".as_bytes();
-    let mut decode_param_name = b"DecodeParams".as_bytes();
-    if stream_dictionary.contains_key2(b"F".as_bytes()) {
-        filter_name = b"FFilter".as_bytes();
-        decode_param_name = b"FDecodeParams".as_bytes();
-    }
+
+    let external_file_stream = stream_dictionary.contains_key2(b"F".as_bytes());
+
+    let decode_param_name = if external_file_stream {
+        b"FDecodeParams".as_bytes()
+    } else {
+        b"DecodeParams".as_bytes()
+    };
+    let filter_name = if external_file_stream {
+        b"FFilter".as_bytes()
+    } else {
+        b"Filter".as_bytes()
+    };
 
     match stream_dictionary.get2(filter_name) {
         Some(PdfObject::Array(vec_of_filter_names)) => {
@@ -57,13 +66,17 @@ pub fn decode(input: &Vec<u8>, stream_dictionary: &NameMap) -> Result<Vec<u8>, D
         Some(PdfObject::Name(name_vec)) => {
             filters.push(PdfObject::Name(name_vec.clone()));
         }
-        Some(_anything_else) => { return Err(DecodingResponse::InvalidFilterSpecification); }
+        Some(_anything_else) => {
+            return Err(DecodingResponse::InvalidFilterSpecification);
+        }
         None => {} // no filters, so we'll do an identity
     }
 
     // no filters: send it back.
-    if filters.len() == 0 {
-        return Ok(input.clone());
+    if filters.is_empty() {
+        let mut because_return_different_bytes_than_given_always = Vec::new();
+        because_return_different_bytes_than_given_always.extend_from_slice(input);
+        return Ok(because_return_different_bytes_than_given_always);
     }
 
     match stream_dictionary.get2(decode_param_name) {
@@ -73,53 +86,52 @@ pub fn decode(input: &Vec<u8>, stream_dictionary: &NameMap) -> Result<Vec<u8>, D
         Some(PdfObject::Dictionary(decode_name_map)) => {
             decode_params.push(PdfObject::Dictionary(decode_name_map.clone()));
         }
-        Some(_anything_else) => { return Err(DecodingResponse::InvalidDecodeParamsSpecification); }
+        Some(_anything_else) => {
+            return Err(DecodingResponse::InvalidDecodeParamsSpecification);
+        }
         None => {} // no decode params.
     }
 
-    let mut current_result: Vec<u8> = input.clone();
+    let mut current_result: Vec<u8> = Vec::new();
+    current_result.extend_from_slice(input);
 
     for (pos, filt) in filters.iter().enumerate() {
         let decode_param = decode_params.get(pos);
 
         match filt {
-            PdfObject::Name(decode_name) => {
-
-                match decode_name.as_slice() {
-                    b"ASCIIHexDecode" => {
-                        current_result = decode_asciihex(&current_result)?;
-                    },
-                    b"ASCII85Decode" => {
-                        current_result = decode_ascii85(&current_result)?;
-                    },
-                    b"FlateDecode" => {
-                        current_result = decode_flate(&current_result, decode_param)?;
-                    },
-                    _ => {
-                        return Err(DecodingResponse::NotImplementedYet);
-                    }
+            PdfObject::Name(decode_name) => match decode_name.as_slice() {
+                b"ASCIIHexDecode" => {
+                    current_result = decode_asciihex(&current_result)?;
                 }
-
+                b"ASCII85Decode" => {
+                    current_result = decode_ascii85(&current_result)?;
+                }
+                b"FlateDecode" => {
+                    current_result = decode_flate(&current_result, decode_param)?;
+                }
+                _ => {
+                    return Err(DecodingResponse::NotImplementedYet);
+                }
             },
             wut => {
                 println!("wut: here with {:#?}", wut);
                 return Err(DecodingResponse::NotImplementedYet);
-            },
+            }
         }
     }
 
     Ok(current_result)
 }
 
-pub fn decode_asciihex(input: &Vec<u8>) -> Result<Vec<u8>, DecodingResponse> {
-    match recognize_asciihex_hexadecimal_string(&input[..]) {
+pub fn decode_asciihex(input: &[u8]) -> Result<Vec<u8>, DecodingResponse> {
+    match recognize_asciihex_hexadecimal_string(input) {
         Ok((_rest, decoded)) => Ok(decoded),
         _ => Err(DecodingResponse::DecodeError),
     }
 }
 
-pub fn decode_ascii85(input: &Vec<u8>) -> Result<Vec<u8>, DecodingResponse> {
-    match recognize_ascii85_string(&input[..]) {
+pub fn decode_ascii85(input: &[u8]) -> Result<Vec<u8>, DecodingResponse> {
+    match recognize_ascii85_string(input) {
         Ok((_rest, decoded)) => Ok(decoded),
         _ => Err(DecodingResponse::DecodeError),
     }
@@ -142,7 +154,7 @@ impl LzwDecoder for lzw::DecoderEarlyChange<lzw::MsbReader> {
     }
 }
 
-pub fn decode_lzw(input: &Vec<u8>, early: bool) -> Result<Vec<u8>, DecodingResponse> {
+pub fn decode_lzw(input: &[u8], early: bool) -> Result<Vec<u8>, DecodingResponse> {
     let mut decoder: Box<LzwDecoder> = if early {
         Box::new(lzw::DecoderEarlyChange::new(lzw::MsbReader::new(), 8))
     } else {
@@ -151,9 +163,9 @@ pub fn decode_lzw(input: &Vec<u8>, early: bool) -> Result<Vec<u8>, DecodingRespo
 
     let mut result: Vec<u8> = Vec::new();
 
-    let mut compressed = &input[..];
+    let mut compressed = input;
 
-    while compressed.len() > 0 {
+    while !compressed.is_empty() {
         let (start, bytes) = decoder.dispatch_decode_bytes(&compressed)?;
         compressed = &compressed[start..];
         result.extend_from_slice(bytes);
@@ -162,22 +174,24 @@ pub fn decode_lzw(input: &Vec<u8>, early: bool) -> Result<Vec<u8>, DecodingRespo
     Ok(result)
 }
 
-pub fn decode_flate(input: &Vec<u8>, decode_params: Option<&PdfObject>) -> Result<Vec<u8>, DecodingResponse> {
-
+pub fn decode_flate(
+    input: &[u8],
+    decode_params: Option<&PdfObject>,
+) -> Result<Vec<u8>, DecodingResponse> {
     if let Some(_obj) = decode_params {
         return Err(DecodingResponse::NotImplementedYet);
     }
 
-    match inflate::inflate_bytes_zlib(input.as_bytes()) {
-        Ok(result) => { Ok(result) }
-        Err(_s) => { Err(DecodingResponse::DecodeError) }
+    match inflate::inflate_bytes_zlib(input) {
+        Ok(result) => Ok(result),
+        Err(_s) => Err(DecodingResponse::DecodeError),
     }
 }
 
-pub fn decode_rle(input: &Vec<u8>) -> Result<Vec<u8>, DecodingResponse> {
-    match recognize_rle_sequence(input.as_slice()) {
-        Ok((_rest, v)) => { Ok(v) }
-        Err(_err) => { Err(DecodingResponse::DecodeError) }
+pub fn decode_rle(input: &[u8]) -> Result<Vec<u8>, DecodingResponse> {
+    match recognize_rle_sequence(input) {
+        Ok((_rest, v)) => Ok(v),
+        Err(_err) => Err(DecodingResponse::DecodeError),
     }
 }
 
@@ -185,23 +199,23 @@ fn refuse_to_decode() -> Result<Vec<u8>, DecodingResponse> {
     Err(DecodingResponse::RefuseToDecode)
 }
 
-pub fn decode_ccittfax(_input: &Vec<u8>) -> Result<Vec<u8>, DecodingResponse> {
+pub fn decode_ccittfax(_input: &[u8]) -> Result<Vec<u8>, DecodingResponse> {
     refuse_to_decode()
 }
 
-pub fn decode_jbig2(_input: &Vec<u8>) -> Result<Vec<u8>, DecodingResponse> {
+pub fn decode_jbig2(_input: &[u8]) -> Result<Vec<u8>, DecodingResponse> {
     refuse_to_decode()
 }
 
-pub fn decode_dct(_input: &Vec<u8>) -> Result<Vec<u8>, DecodingResponse> {
+pub fn decode_dct(_input: &[u8]) -> Result<Vec<u8>, DecodingResponse> {
     refuse_to_decode()
 }
 
-pub fn decode_jpx(_input: &Vec<u8>) -> Result<Vec<u8>, DecodingResponse> {
+pub fn decode_jpx(_input: &[u8]) -> Result<Vec<u8>, DecodingResponse> {
     refuse_to_decode()
 }
 
-pub fn decode_crypt(_input: &Vec<u8>) -> Result<Vec<u8>, DecodingResponse> {
+pub fn decode_crypt(_input: &[u8]) -> Result<Vec<u8>, DecodingResponse> {
     Err(DecodingResponse::NotImplementedYet)
 }
 
@@ -212,21 +226,33 @@ mod tests {
     #[test]
     fn test_decode_asciihex() {
         match decode_asciihex(&b"4040>".to_vec()) {
-            Ok(v) => { assert_eq!(b"@@".to_vec(), v); }
-            _ => { assert_eq!(101, 0); }
+            Ok(v) => {
+                assert_eq!(b"@@".to_vec(), v);
+            }
+            _ => {
+                assert_eq!(101, 0);
+            }
         }
 
         match decode_asciihex(&b"4 0  4\n0\t>".to_vec()) {
-            Ok(v) => { assert_eq!(b"@@".to_vec(), v); }
-            _ => { assert_eq!(102, 0); }
+            Ok(v) => {
+                assert_eq!(b"@@".to_vec(), v);
+            }
+            _ => {
+                assert_eq!(102, 0);
+            }
         }
     }
 
     #[test]
     fn test_decode_ascii85() {
         match decode_ascii85(&b"z~>".to_vec()) {
-            Ok(v) => { assert_eq!(b"\x00\x00\x00\x00".to_vec(), v); }
-            _ => { assert_eq!(103, 0); }
+            Ok(v) => {
+                assert_eq!(b"\x00\x00\x00\x00".to_vec(), v);
+            }
+            _ => {
+                assert_eq!(103, 0);
+            }
         }
 
         match decode_ascii85(&b"9jqo^BlbD-BleB1DJ+*+F(f,q/0JhKF<GL>Cj@.4Gp$d7F!,L7@<6@)/0JDEF<G%<+EV:2F!,O<DJ+*.@<*K0@<6L(Df-\\0Ec5e;DffZ(EZee.Bl.9pF\"AGXBPCsi+DGm>@3BB/F*&OCAfu2/AKYi(DIb:@FD,*)+C]U=@3BN#EcYf8ATD3s@q?d$AftVqCh[NqF<G:8+EV:.+Cf>-FD5W8ARlolDIal(DId<j@<?3r@:F%a+D58'ATD4$Bl@l3De:,-DJs`8ARoFb/0JMK@qB4^F!,R<AKZ&-DfTqBG%G>uD.RTpAKYo'+CT/5+Cei#DII?(E,9)oF*2M7/c~>".to_vec()) {
@@ -234,7 +260,6 @@ mod tests {
             _ => { assert_eq!(104, 0); }
         }
     }
-
 
     #[test]
     fn test_decode_lzw() {
@@ -244,16 +269,23 @@ mod tests {
         let data = b"-----A---B".to_vec();
 
         match decode_lzw(&input, true) {
-            Ok(v) => { assert_eq!(data, v); }
-            _ => { assert_eq!(105, 0); }
+            Ok(v) => {
+                assert_eq!(data, v);
+            }
+            _ => {
+                assert_eq!(105, 0);
+            }
         }
-
 
         let input = include_bytes!("../assets/lzw.bitstream").to_vec();
         let data = b"q\r660 0 0 907 0 0 cm\r/Im1 Do\rQ\r".to_vec();
         match decode_lzw(&input, true) {
-            Ok(v) => { assert_eq!(data, v); }
-            _ => { assert_eq!(106, 0); }
+            Ok(v) => {
+                assert_eq!(data, v);
+            }
+            _ => {
+                assert_eq!(106, 0);
+            }
         }
     }
 
@@ -263,8 +295,12 @@ mod tests {
         let data = b"q\nBT\n36 806 Td\nET\nQ\nq 1 0 0 1 0 0 cm /Xf1 Do Q\n".to_vec();
 
         match decode_flate(&input, None) {
-            Ok(v) => { assert_eq!(data, v); }
-            _ => { assert_eq!(107, 0); }
+            Ok(v) => {
+                assert_eq!(data, v);
+            }
+            _ => {
+                assert_eq!(107, 0);
+            }
         }
     }
 
@@ -274,15 +310,23 @@ mod tests {
         let data = b"bbc".to_vec();
 
         match decode_rle(&input) {
-            Ok(v) => { assert_eq!(data, v); }
-            _ => { assert_eq!(108, 0); }
+            Ok(v) => {
+                assert_eq!(data, v);
+            }
+            _ => {
+                assert_eq!(108, 0);
+            }
         }
     }
 
     #[test]
     fn decode_dispatch_entry_point() {
         let input = b"hiya toots!\n".to_vec();
-        let map = NameMap::of(vec![PdfObject::Name(b"Length".to_vec()), PdfObject::Integer(12)]).unwrap();
+        let map = NameMap::of(vec![
+            PdfObject::Name(b"Length".to_vec()),
+            PdfObject::Integer(12),
+        ])
+        .unwrap();
 
         match decode(&input, &map) {
             Ok(retval) => {
@@ -296,19 +340,22 @@ mod tests {
 
         let input = b"9jqo^BlbD-BleB1DJ+*+F(f,q/0JhKF<GL>Cj@.4Gp$d7F!,L7@<6@)/0JDEF<G%<+EV:2F!,O<DJ+*.@<*K0@<6L(Df-\\0Ec5e;DffZ(EZee.Bl.9pF\"AGXBPCsi+DGm>@3BB/F*&OCAfu2/AKYi(DIb:@FD,*)+C]U=@3BN#EcYf8ATD3s@q?d$AftVqCh[NqF<G:8+EV:.+Cf>-FD5W8ARlolDIal(DId<j@<?3r@:F%a+D58'ATD4$Bl@l3De:,-DJs`8ARoFb/0JMK@qB4^F!,R<AKZ&-DfTqBG%G>uD.RTpAKYo'+CT/5+Cei#DII?(E,9)oF*2M7/c~>".to_vec();
         let map = NameMap::of(vec![
-            PdfObject::Name(b"Filter".to_vec()), PdfObject::Name(b"ASCII85Decode".to_vec()),
-            PdfObject::Name(b"Length".to_vec()), PdfObject::Integer(341)]).unwrap();
+            PdfObject::Name(b"Filter".to_vec()),
+            PdfObject::Name(b"ASCII85Decode".to_vec()),
+            PdfObject::Name(b"Length".to_vec()),
+            PdfObject::Integer(341),
+        ])
+        .unwrap();
         let data = b"Man is distinguished, not only by his reason, but by this singular passion from other animals, which is a lust of the mind, that by a perseverance of delight in the continued and indefatigable generation of knowledge, exceeds the short vehemence of any carnal pleasure.".to_vec();
 
         match decode(&input, &map) {
             Ok(retval) => {
                 assert_eq!(data, retval);
-            },
+            }
             anything_else => {
                 println!("got something horrible {:#?}", anything_else);
                 assert_eq!(111, 0);
             }
         }
-
     }
 }
