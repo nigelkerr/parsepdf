@@ -36,27 +36,27 @@ fn process_file(possible_file: String) -> Result<(), PdfError> {
         for obj_num in pdffile.master_xref_table().all_numbers() {
             match pdffile.master_xref_table().get(obj_num) {
                 Some(XrefTableEntry2::Free{ number, generation}) => {
-                    println!("object num {} free generation {}\n", number, generation);
+                    println!("object num {} {} free\n", number, generation);
                 },
                 Some(XrefTableEntry2::Uncompressed{ number, generation, offset}) => {
                     match recognize_pdf_indirect_object(&mmap[offset as usize..]) {
                         Ok((_rest, pdf_ind_obj)) => {
                             println!(
-                                "object num {} at offset {}\n{}\n",
-                                obj_num, offset, pdf_ind_obj
+                                "object num {} {} at offset {}\n{}\n",
+                                number, generation ,offset, pdf_ind_obj
                             );
                         }
                         Err(_err) => {
                             println!(
-                                "parsing error on object num {} at offset {}",
-                                obj_num, offset
+                                "parsing error on object num {} {} at offset {}",
+                                number, generation, offset
                             );
                             return Err(PdfError::Nom);
                         }
                     }
                 },
                 Some(XrefTableEntry2::InStream{ number, in_object_number, index_in_stream}) => {
-                    println!("not_implemented_yet: object num {} in objstm {} at index {}\n", number, in_object_number, index_in_stream);
+                    println!("not_implemented_yet: object num {} 0 in objstm {} at index {}\n", number, in_object_number, index_in_stream);
                 },
                 None => {}
             }

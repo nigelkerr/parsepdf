@@ -95,33 +95,33 @@ impl fmt::Display for PdfObject {
                 )
             }
             PdfObject::Array(ref v) => {
-                write!(f, "PdfObject::Array[\n")?;
+                writeln!(f, "PdfObject::Array[")?;
                 for obj in v {
                     write!(f, "\t")?;
                     obj.fmt(f)?;
-                    write!(f, "\n")?;
+                    writeln!(f)?;
                 }
                 write!(f, "]")
             }
             PdfObject::Dictionary(ref nkm) => {
-                write!(f, "PdfObject::Dictionary<<\n")?;
+                writeln!(f, "PdfObject::Dictionary<<")?;
                 for name in nkm.names() {
                     write!(f, "\t")?;
                     name.fmt(f)?;
                     write!(f, "\n\t\t")?;
                     nkm.get(name).unwrap().fmt(f)?;
-                    write!(f, "\n")?;
+                    writeln!(f)?;
                 }
                 write!(f, ">>")
             }
             PdfObject::Stream(ref nkm, ref _strm) => {
-                write!(f, "PdfObject::Stream<<\n")?;
+                writeln!(f, "PdfObject::Stream<<")?;
                 for name in nkm.names() {
                     write!(f, "\t")?;
                     name.fmt(f)?;
                     write!(f, "\n\t\t")?;
                     nkm.get(name).unwrap().fmt(f)?;
-                    write!(f, "\n")?;
+                    writeln!(f)?;
                 }
                 write!(f, ">>")
             }
@@ -142,7 +142,7 @@ pub struct PdfIndirectObject {
 
 impl fmt::Display for PdfIndirectObject {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "PdfIndirectObject {} {}\n", self.number, self.generation)?;
+        writeln!(f, "PdfIndirectObject {} {}", self.number, self.generation)?;
         self.obj.fmt(f)
     }
 }
@@ -257,12 +257,13 @@ pub enum XrefTableEntry2 {
 impl XrefTableEntry2 {
     pub fn get_number(&self) -> u32 {
         match *self {
-            XrefTableEntry2::Free { number, generation } => number,
-            XrefTableEntry2::Uncompressed { number, generation, offset } => number,
-            XrefTableEntry2::InStream { number, in_object_number, index_in_stream } => number,
+            XrefTableEntry2::Free {  number, generation: _generation } => number,
+            XrefTableEntry2::Uncompressed {  number, generation: _generation, offset: _offset } => number,
+            XrefTableEntry2::InStream {  number, in_object_number: _in_object_number, index_in_stream: _index_in_stream } => number,
         }
     }
 }
+
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct XrefTable2 {
@@ -317,7 +318,7 @@ impl XrefTable2 {
             }
         }
 
-        return true;
+        true
     }
 
     pub fn get(&self, obj_number: u32) -> Option<XrefTableEntry2> {
@@ -435,8 +436,8 @@ pub fn recognize_pdf_header(i: &[u8]) -> IResult<&[u8], PdfVersion> {
         )),
     )(i)
         {
-            Ok((o, (pdf_version, _, _))) => return Ok((o, pdf_version)),
-            Err(x) => return Err(x),
+            Ok((o, (pdf_version, _, _))) => { Ok((o, pdf_version)) },
+            Err(x) => { Err(x) },
         }
 }
 
@@ -530,7 +531,7 @@ fn two_byte_slices_of_digits_to_f64(pre_digits: &[u8], post_digits: &[u8]) -> f6
     full_number.extend_from_slice(pre_digits);
     full_number.extend_from_slice(b".");
     full_number.extend_from_slice(post_digits);
-    return bytes_to_f64(&full_number);
+    bytes_to_f64(&full_number)
 }
 
 /// Get a float per the wierd PDF rules that i dont trust std library functions
@@ -776,8 +777,8 @@ fn rel_length_below_128(i: &[u8]) -> IResult<&[u8], Vec<u8>> {
     let taken = map(take_while_m_n(1usize, 1usize, below_128), |v: &[u8]| { v[0] })(i)?;
     let (rest, length) = taken;
     match map(take((length + 1) as usize), |slice: &[u8]| { slice.to_vec() })(rest) {
-        Ok((rest2, v)) => { return Ok((rest2, v)); }
-        Err(err) => { return Err(err); }
+        Ok((rest2, v)) => { Ok((rest2, v)) }
+        Err(err) => { Err(err) }
     }
 }
 
@@ -791,6 +792,7 @@ fn rel_length_above_128(i: &[u8]) -> IResult<&[u8], Vec<u8>> {
             Ok((rest2, v)) => { return Ok((rest2, v)); }
             Err(err) => { return Err(err); }
         }
+
     } else {
         return Err(nom::Err::Error((i, nom::error::ErrorKind::TooLarge)));
     }
@@ -907,8 +909,8 @@ fn recognize_bytes_possible_in_string_literal(i: &[u8]) -> IResult<&[u8], Vec<u8
 
 fn recognize_empty_parens(i: &[u8]) -> IResult<&[u8], Vec<u8>> {
     match tag("()")(i) {
-        Ok((rest, empty_parens)) => return Ok((rest, empty_parens.to_vec())),
-        Err(err) => Err(err),
+        Ok((rest, empty_parens)) => { Ok((rest, empty_parens.to_vec())) },
+        Err(err) => { Err(err) },
     }
 }
 
@@ -1289,18 +1291,8 @@ fn recognize_pdf_cross_reference_entry(i: &[u8]) -> IResult<&[u8], XrefTableEntr
     ))(i)
         {
             Ok((rest, (offset, _, generation, _, in_use, _))) => {
-                match offset {
-                    Err(err) => {
-                        return Err(err);
-                    }
-                    _ => {}
-                }
-                match generation {
-                    Err(err) => {
-                        return Err(err);
-                    }
-                    _ => {}
-                }
+                if let Err(err) = offset { return Err(err); }
+                if let Err(err) = generation { return Err(err); }
 
                 if in_use {
                     Ok((
@@ -1320,13 +1312,13 @@ fn recognize_pdf_cross_reference_entry(i: &[u8]) -> IResult<&[u8], XrefTableEntr
 
 fn set_object_number(xref_entry: &XrefTableEntry2, object_number: u32) -> XrefTableEntry2 {
     match xref_entry {
-        XrefTableEntry2::Free { number, generation } => {
+        XrefTableEntry2::Free { number: _number, generation } => {
             XrefTableEntry2::Free { number: object_number, generation: *generation }
         }
-        XrefTableEntry2::Uncompressed { number, generation, offset } => {
+        XrefTableEntry2::Uncompressed { number: _number, generation, offset } => {
             XrefTableEntry2::Uncompressed { number: object_number, generation: *generation, offset: *offset }
         }
-        XrefTableEntry2::InStream { number, in_object_number, index_in_stream } => {
+        XrefTableEntry2::InStream { number: _number, in_object_number, index_in_stream } => {
             XrefTableEntry2::InStream { number: object_number, in_object_number: *in_object_number, index_in_stream: *index_in_stream }
         }
     }
@@ -1357,7 +1349,7 @@ fn recognize_pdf_cross_reference_subsection(i: &[u8]) -> IResult<&[u8], Vec<Xref
                             let mut final_vec: Vec<XrefTableEntry2> = Vec::new();
                             for xref_entry in &vec_of_entries {
                                 final_vec.push(set_object_number(xref_entry, object_number));
-                                object_number = object_number + 1;
+                                object_number += 1;
                             }
 
                             Ok((rest, final_vec))
@@ -1369,7 +1361,7 @@ fn recognize_pdf_cross_reference_subsection(i: &[u8]) -> IResult<&[u8], Vec<Xref
         }
 }
 
-pub fn recognize_pdf_old_style_cross_reference_section(i: &[u8]) -> IResult<&[u8], XrefTable2> {
+fn recognize_pdf_old_style_cross_reference_section(i: &[u8]) -> IResult<&[u8], XrefTable2> {
     match preceded(
         alt((tag(b"xref\r\n"), tag(b"xref\r"), tag(b"xref\n"))),
         tuple((
@@ -1392,7 +1384,7 @@ pub fn recognize_pdf_old_style_cross_reference_section(i: &[u8]) -> IResult<&[u8
         }
 }
 
-pub fn recognize_pdf_old_style_trailer(i: &[u8]) -> IResult<&[u8], PdfObject> {
+fn recognize_pdf_old_style_trailer(i: &[u8]) -> IResult<&[u8], PdfObject> {
     match preceded(
         tuple((tag(b"trailer"), pdf_whitespace)),
         tuple((

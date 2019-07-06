@@ -5,7 +5,6 @@ use crate::{recognize_asciihex_hexadecimal_string, recognize_ascii85_string, rec
 
 use std::io;
 use nom::{AsBytes};
-use nom::error::ErrorKind;
 
 quick_error! {
     #[derive(Debug)]
@@ -58,7 +57,7 @@ pub fn decode(input: &Vec<u8>, stream_dictionary: &NameMap) -> Result<Vec<u8>, D
         Some(PdfObject::Name(name_vec)) => {
             filters.push(PdfObject::Name(name_vec.clone()));
         }
-        Some(anything_else) => { return Err(DecodingResponse::InvalidFilterSpecification); }
+        Some(_anything_else) => { return Err(DecodingResponse::InvalidFilterSpecification); }
         None => {} // no filters, so we'll do an identity
     }
 
@@ -74,7 +73,7 @@ pub fn decode(input: &Vec<u8>, stream_dictionary: &NameMap) -> Result<Vec<u8>, D
         Some(PdfObject::Dictionary(decode_name_map)) => {
             decode_params.push(PdfObject::Dictionary(decode_name_map.clone()));
         }
-        Some(anything_else) => { return Err(DecodingResponse::InvalidDecodeParamsSpecification); }
+        Some(_anything_else) => { return Err(DecodingResponse::InvalidDecodeParamsSpecification); }
         None => {} // no decode params.
     }
 
@@ -165,7 +164,7 @@ pub fn decode_lzw(input: &Vec<u8>, early: bool) -> Result<Vec<u8>, DecodingRespo
 
 pub fn decode_flate(input: &Vec<u8>, decode_params: Option<&PdfObject>) -> Result<Vec<u8>, DecodingResponse> {
 
-    if let Some(PdfObject) = decode_params {
+    if let Some(_obj) = decode_params {
         return Err(DecodingResponse::NotImplementedYet);
     }
 

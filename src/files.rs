@@ -1,10 +1,10 @@
 extern crate kmpsearch;
 
 use crate::parser::PdfObject;
-use crate::parser::{XrefTable2, XrefTableEntry2};
-use crate::{recognize_pdf_old_style_cross_reference_section, recognize_pdf_old_style_trailer, recognize_pdf_version, NameMap, PdfVersion, recognize_pdf_startxref};
+use crate::parser::{XrefTable2};
+use crate::{recognize_pdf_cross_reference, recognize_pdf_version, NameMap, PdfVersion, recognize_pdf_startxref};
 use kmpsearch::Haystack;
-use nom::{IResult,AsBytes};
+use nom::{AsBytes};
 
 quick_error! {
     #[derive(Debug)]
@@ -131,50 +131,44 @@ pub fn parse_pdf(i: &[u8], file_len: u64) -> Result<PdfFile, PdfError> {
 
     // try to march backwards through the file.
     loop {
-        match recognize_pdf_old_style_cross_reference_section(&input[next_xref as usize..]) {
-            Ok((rest, xr)) => {
+        match recognize_pdf_cross_reference(&input[next_xref as usize..]) {
+            Ok((_rest, (xr, PdfObject::Dictionary(trailer_map)))) => {
                 pdf_file.xref_offsets.push(next_xref);
                 pdf_file.xref_tables.push(xr);
 
-                match recognize_pdf_old_style_trailer(rest) {
-                    Ok((_rest2, PdfObject::Dictionary(trailer_map))) => {
-                        match trailer_map.get2(b"Prev".as_bytes()) {
-                            Some(PdfObject::Integer(new_xref)) => {
-                                let new_xref_u64: u64 = new_xref as u64;
+                match trailer_map.get2(b"Prev".as_bytes()) {
+                    Some(PdfObject::Integer(new_xref)) => {
+                        let new_xref_u64: u64 = new_xref as u64;
 
-                                // these ought never loop
-                                if pdf_file.xref_offsets.contains(&new_xref_u64) {
-                                    return Err(PdfError::StartXrefAttemptedInfiniteLoop);
-                                }
+                        // these ought never loop!
+                        if pdf_file.xref_offsets.contains(&new_xref_u64) {
+                            return Err(PdfError::StartXrefAttemptedInfiniteLoop);
+                        }
 
-                                // these ought always strictly decrease
-                                if let Some(last_value) = pdf_file.xref_offsets.last() {
-                                    if *last_value <= new_xref_u64 {
-                                        return Err(PdfError::StartXrefAttemptedNonsensicalValue);
-                                    }
-                                }
-
-                                next_xref = new_xref_u64;
-                                pdf_file.trailers.push(trailer_map);
-                            }
-                            Some(_other_pdf_object) => {
-                                return Err(PdfError::TrailerPrevNotAnOffset);
-                            }
-                            _ => {
-                                pdf_file.trailers.push(trailer_map);
-                                break;
+                        // these ought always strictly decrease!
+                        if let Some(last_value) = pdf_file.xref_offsets.last() {
+                            if *last_value <= new_xref_u64 {
+                                return Err(PdfError::StartXrefAttemptedNonsensicalValue);
                             }
                         }
+
+                        next_xref = new_xref_u64;
+                        pdf_file.trailers.push(trailer_map);
                     }
-                    Ok((_rest3, _unknown_tuple)) => {
-                        return Err(PdfError::TrailerPuzzlingStructure);
+                    Some(_other_pdf_object) => {
+                        return Err(PdfError::TrailerPrevNotAnOffset);
                     }
-                    Err(_err) => {
-                        return Err(PdfError::Nom);
+                    _ => {
+                        pdf_file.trailers.push(trailer_map);
+                        break;
                     }
                 }
+
             }
             Err(_err) => {
+                return Err(PdfError::TrailerPuzzlingStructure);
+            }
+            _ => {
                 return Err(PdfError::TrailerPuzzlingStructure);
             }
         }
