@@ -8,8 +8,8 @@ use std::error;
 use std::fmt;
 use std::str;
 use std::str::FromStr;
-use crate::validate_xref_stream_dictionary;
-use crate::XRefStream;
+//use crate::validate_xref_stream_dictionary;
+//use crate::XRefStream;
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum PdfVersion {
@@ -249,6 +249,10 @@ impl NameMap {
 
     pub fn len(&self) -> usize {
         self.map.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.map.is_empty()
     }
 }
 
@@ -851,21 +855,21 @@ fn rel_length_below_128(i: &[u8]) -> IResult<&[u8], Vec<u8>> {
 
 fn rel_length_above_128(i: &[u8]) -> IResult<&[u8], Vec<u8>> {
     let taken = map(take_while_m_n(1usize, 1usize, above_128), |v: &[u8]| v[0])(i)?;
-    if let (rest, length) = taken {
-        match map(take(1usize), |v: &[u8]| {
-            vec![v[0]; ((257 as u16) - u16::from(length)) as usize]
-        })(rest)
-        {
-            Ok((rest2, v)) => {
-                return Ok((rest2, v));
-            }
-            Err(err) => {
-                return Err(err);
-            }
-        }
-    } else {
-        return Err(nom::Err::Error((i, nom::error::ErrorKind::TooLarge)));
-    }
+    let (rest, length) = taken;
+    let run_length = ((257 as u16) - u16::from(length)) as usize;
+    let out_vec = vec![rest[0]; run_length];
+    Ok((&rest[1..], out_vec))
+//    match map(take(1usize), |v: &[u8]| {
+//        vec![v[0]; rlength]
+//    })(rest)
+//    {
+//        Ok((rest2, v)) => {
+//            return Ok((rest2, v));
+//        }
+//        Err(err) => {
+//            return Err(err);
+//        }
+//    }
 }
 
 pub fn recognize_rle_sequence(i: &[u8]) -> IResult<&[u8], Vec<u8>> {

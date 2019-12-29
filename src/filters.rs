@@ -64,7 +64,7 @@ pub fn decode(input: &[u8], stream_dictionary: &NameMap) -> Result<Vec<u8>, Deco
             filters.extend(vec_of_filter_names);
         }
         Some(PdfObject::Name(name_vec)) => {
-            filters.push(PdfObject::Name(name_vec.clone()));
+            filters.push(PdfObject::Name(name_vec));
         }
         Some(_anything_else) => {
             return Err(DecodingResponse::InvalidFilterSpecification);
@@ -84,7 +84,7 @@ pub fn decode(input: &[u8], stream_dictionary: &NameMap) -> Result<Vec<u8>, Deco
             decode_params.extend(vec_of_decode_param_dictionaries);
         }
         Some(PdfObject::Dictionary(decode_name_map)) => {
-            decode_params.push(PdfObject::Dictionary(decode_name_map.clone()));
+            decode_params.push(PdfObject::Dictionary(decode_name_map));
         }
         Some(_anything_else) => {
             return Err(DecodingResponse::InvalidDecodeParamsSpecification);
@@ -155,7 +155,7 @@ impl LzwDecoder for lzw::DecoderEarlyChange<lzw::MsbReader> {
 }
 
 pub fn decode_lzw(input: &[u8], early: bool) -> Result<Vec<u8>, DecodingResponse> {
-    let mut decoder: Box<LzwDecoder> = if early {
+    let mut decoder: Box<dyn LzwDecoder> = if early {
         Box::new(lzw::DecoderEarlyChange::new(lzw::MsbReader::new(), 8))
     } else {
         Box::new(lzw::Decoder::new(lzw::MsbReader::new(), 8))

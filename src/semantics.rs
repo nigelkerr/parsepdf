@@ -90,7 +90,7 @@ pub fn validate_xref_stream_dictionary(xref_stream_dict: &NameMap) -> Result<XRe
 
     let mut result = XRefStream::new();
 
-    if xref_stream_dict.len() == 0 {
+    if xref_stream_dict.is_empty() {
         return Err(ValidationError::EmptyDictionary);
     }
 
@@ -164,10 +164,10 @@ pub fn validate_xref_stream_dictionary(xref_stream_dict: &NameMap) -> Result<XRe
 
         },
         Some(PdfObject::Name(name_value)) => {
-            result.filter = Some(vec![PdfObject::Name(name_value.clone())]);
+            result.filter = Some(vec![PdfObject::Name(name_value)]);
             match xref_stream_dict.get2(b"DecodeParams") {
                 Some(PdfObject::Dictionary(decode_params_map)) => {
-                    result.decode_params = Some(vec![PdfObject::Dictionary(decode_params_map.clone())]);
+                    result.decode_params = Some(vec![PdfObject::Dictionary(decode_params_map)]);
                 },
                 None => {},
                 _ => { return Err(ValidationError::DecodeParamsExpectedToBeDictionaryOrAbsent)},
@@ -184,8 +184,8 @@ pub fn validate_xref_stream_dictionary(xref_stream_dict: &NameMap) -> Result<XRe
             let mut index: Vec<(u32, usize)> = Vec::new();
 
             for chunk in vec_of_possibly_integers.chunks(2) {
-                match chunk {
-                    &[PdfObject::Integer(c0), PdfObject::Integer(c1)] if c0 >= 0 && c1 >= 0 => {
+                match *chunk {
+                    [PdfObject::Integer(c0), PdfObject::Integer(c1)] if c0 >= 0 && c1 >= 0 => {
                         index.push( (c0 as u32, c1 as usize) );
                     },
                     _ => {
