@@ -859,17 +859,6 @@ fn rel_length_above_128(i: &[u8]) -> IResult<&[u8], Vec<u8>> {
     let run_length = ((257 as u16) - u16::from(length)) as usize;
     let out_vec = vec![rest[0]; run_length];
     Ok((&rest[1..], out_vec))
-//    match map(take(1usize), |v: &[u8]| {
-//        vec![v[0]; rlength]
-//    })(rest)
-//    {
-//        Ok((rest2, v)) => {
-//            return Ok((rest2, v));
-//        }
-//        Err(err) => {
-//            return Err(err);
-//        }
-//    }
 }
 
 pub fn recognize_rle_sequence(i: &[u8]) -> IResult<&[u8], Vec<u8>> {
