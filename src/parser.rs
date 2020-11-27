@@ -635,7 +635,7 @@ pub fn recognize_pdf_float(i: &[u8]) -> IResult<&[u8], PdfObject> {
 
 #[inline]
 fn is_pdf_whitespace(chr: u8) -> bool {
-    (chr == 0x00 || chr == 0x09 || chr == 0x0A || chr == 0x0C || chr == 0x0D || chr == 0x20)
+    chr == 0x00 || chr == 0x09 || chr == 0x0A || chr == 0x0C || chr == 0x0D || chr == 0x20
 }
 
 fn pdf_whitespace(i: &[u8]) -> IResult<&[u8], &[u8]> {
@@ -644,7 +644,7 @@ fn pdf_whitespace(i: &[u8]) -> IResult<&[u8], &[u8]> {
 
 #[inline]
 fn is_pdf_delimiter(chr: u8) -> bool {
-    (chr == 0x28
+    chr == 0x28
         || chr == 0x29
         || chr == 0x3c
         || chr == 0x3e
@@ -653,7 +653,7 @@ fn is_pdf_delimiter(chr: u8) -> bool {
         || chr == 0x7b
         || chr == 0x7d
         || chr == 0x2f
-        || chr == 0x25)
+        || chr == 0x25
 }
 
 #[inline]
@@ -887,7 +887,7 @@ fn is_oct_high_digit(chr: u8) -> bool {
 }
 
 fn from_octal(i: u8) -> u8 {
-    (i - 0x30u8)
+    i - 0x30u8
 }
 
 fn three_digit_octal(i: &[u8]) -> IResult<&[u8], u8> {

@@ -14,12 +14,10 @@ extern crate quick_error2;
 mod files;
 mod filters;
 mod parser;
-mod semantics;
 
 pub use crate::files::*;
 pub use crate::filters::*;
 pub use crate::parser::*;
-pub use crate::semantics::*;
 
 #[cfg(test)]
 mod tests {}
