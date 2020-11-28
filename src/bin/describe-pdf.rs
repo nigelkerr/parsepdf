@@ -37,7 +37,15 @@ fn process_file(possible_file: String) -> Result<(), PdfError> {
             match pdffile.master_xref_table().get(obj_num) {
                 Some(XrefTableEntry2::Free { number, generation }) => {
                     println!("object num {} {} free\n", number, generation);
-                }
+                },
+                // ?!?!?
+                Some(XrefTableEntry2::Uncompressed {
+                    number,
+                    generation: 0,
+                    offset: 0
+                }) => {
+                    println!("puzzlingobject num {} not free\n", number);
+                },
                 Some(XrefTableEntry2::Uncompressed {
                     number,
                     generation,
