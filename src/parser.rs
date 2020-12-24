@@ -1,7 +1,11 @@
+use nom::error::Error;
+use nom::error::ErrorKind;
+use nom::error::ParseError;
 use nom::{
     branch::alt, bytes::complete::*, character::complete::digit1, character::*, combinator::*,
     error::context, multi::*, sequence::*, AsBytes, IResult,
 };
+
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::convert::TryFrom;
 use std::error;
@@ -539,7 +543,10 @@ macro_rules! digits_to {
                     let parsed_number = bytes_to_i64(digits);
                     match $T::try_from(parsed_number) {
                         Ok(v) => Ok((rest, v)),
-                        Err(_x) => Err(nom::Err::Failure((i, nom::error::ErrorKind::TooLarge))),
+                        Err(_x) => Err(nom::Err::Error(nom::error::Error::from_error_kind(
+                            i,
+                            nom::error::ErrorKind::TooLarge,
+                        ))),
                     }
                 }
                 Err(err) => Err(err),
@@ -562,7 +569,10 @@ macro_rules! not_zero_padded_digits_to {
                     let parsed_number = bytes_to_i64(digits);
                     match $T::try_from(parsed_number) {
                         Ok(v) => Ok((rest, v)),
-                        Err(_x) => Err(nom::Err::Failure((i, nom::error::ErrorKind::TooLarge))),
+                        Err(_x) => Err(nom::Err::Error(nom::error::Error::from_error_kind(
+                            i,
+                            nom::error::ErrorKind::TooLarge,
+                        ))),
                     }
                 }
                 Err(err) => Err(err),
@@ -705,7 +715,10 @@ pub fn recognize_asciihex_hexadecimal_string(i: &[u8]) -> IResult<&[u8], Vec<u8>
     )(i)
     {
         Ok((_rest, Some(v))) => Ok((_rest, v)),
-        Ok((rest, None)) => Err(nom::Err::Error((rest, nom::error::ErrorKind::TooLarge))),
+        Ok((_rest, None)) => Err(nom::Err::Failure(nom::error::Error::from_error_kind(
+            i,
+            nom::error::ErrorKind::TooLarge,
+        ))),
         Err(err) => Err(err),
     }
 }
@@ -725,7 +738,10 @@ pub fn recognize_pdf_hexadecimal_string(i: &[u8]) -> IResult<&[u8], PdfObject> {
     )(i)
     {
         Ok((rest, Some(v))) => Ok((rest, PdfObject::String(v))),
-        Ok((rest, None)) => Err(nom::Err::Error((rest, nom::error::ErrorKind::TooLarge))),
+        Ok((_rest, None)) => Err(nom::Err::Failure(nom::error::Error::from_error_kind(
+            i,
+            nom::error::ErrorKind::TooLarge,
+        ))),
         Err(err) => Err(err),
     }
 }
@@ -831,7 +847,10 @@ pub fn recognize_ascii85_string(i: &[u8]) -> IResult<&[u8], Vec<u8>> {
     )(i)
     {
         Ok((rest, Some(v))) => Ok((rest, v)),
-        Ok((rest, None)) => Err(nom::Err::Error((rest, nom::error::ErrorKind::TooLarge))),
+        Ok((_rest, None)) => Err(nom::Err::Failure(nom::error::Error::from_error_kind(
+            i,
+            nom::error::ErrorKind::TooLarge,
+        ))),
         Err(err) => Err(err),
     }
 }
@@ -1035,7 +1054,10 @@ fn recognize_name_hex_encoded_byte(i: &[u8]) -> IResult<&[u8], Vec<u8>> {
     )(i)
     {
         Ok((rest, Some(v))) => Ok((rest, v)),
-        Ok((rest, None)) => Err(nom::Err::Error((rest, nom::error::ErrorKind::TooLarge))),
+        Ok((_rest, None)) => Err(nom::Err::Failure(nom::error::Error::from_error_kind(
+            i,
+            nom::error::ErrorKind::TooLarge,
+        ))),
         Err(err) => Err(err),
     }
 }
@@ -1184,7 +1206,10 @@ pub fn recognize_pdf_dictionary(i: &[u8]) -> IResult<&[u8], PdfObject> {
     match result {
         Ok((rest, vec_of_objects_for_namemap)) => match NameMap::of(vec_of_objects_for_namemap) {
             Ok(namemap) => Ok((rest, PdfObject::Dictionary(namemap))),
-            _ => Err(nom::Err::Failure((i, nom::error::ErrorKind::Many0))),
+            _ => Err(nom::Err::Failure(nom::error::Error::from_error_kind(
+                i,
+                nom::error::ErrorKind::Many0,
+            ))),
         },
         Err(err) => Err(err),
     }
@@ -1287,10 +1312,16 @@ pub fn recognize_pdf_stream(i: &[u8]) -> IResult<&[u8], PdfObject> {
                 Err(err) => Err(err),
             },
             None => Ok((rest, PdfObject::Dictionary(dictionary))),
-            _ => Err(nom::Err::Failure((i, nom::error::ErrorKind::Many0))),
+            _ => Err(nom::Err::Failure(nom::error::Error::from_error_kind(
+                i,
+                nom::error::ErrorKind::Many0,
+            ))),
         },
         Err(err) => Err(err),
-        _ => Err(nom::Err::Failure((i, nom::error::ErrorKind::Many0))),
+        _ => Err(nom::Err::Failure(nom::error::Error::from_error_kind(
+            i,
+            nom::error::ErrorKind::Many0,
+        ))),
     }
 }
 
