@@ -12,9 +12,11 @@ extern crate approx;
 extern crate quick_error2;
 
 mod files;
+mod filters;
 mod parser;
 
 pub use crate::files::*;
+pub use crate::filters::*;
 pub use crate::parser::*;
 
 #[cfg(test)]

@@ -1,14 +1,16 @@
 [package]
 name = "parsepdf"
-version = "0.2.3"
+version = "0.3.0"
 authors = ["Nigel Kerr <nigel.kerr@gmail.com>"]
 edition = "2018"
 
 [dependencies]
-approx = "0.3.2"
+approx = "0.5.0"
 memmap = "0.7.0"
 kmpsearch = "1.0.0"
-quick-error2 = "2.0.1"
+quick-error2 = "2.1.0"
+lzw = "0.10.0"
+inflate = "0.4.5"
 
 [dependencies.nom]
-version = "5.0.0"
+version = "6.1.2"
