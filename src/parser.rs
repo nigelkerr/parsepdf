@@ -78,7 +78,7 @@ pub enum PdfObject {
 
 impl fmt::Display for PdfObject {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match *self {
+        match self {
             PdfObject::Null => write!(f, "PdfObject::Null"),
             PdfObject::Boolean(ref v) => write!(f, "PdfObject::Boolean({})", v),
             PdfObject::Integer(ref v) => write!(f, "PdfObject::Integer({})", v),
@@ -167,6 +167,7 @@ impl fmt::Display for NameMapError {
     }
 }
 
+// why did i do this?
 impl error::Error for NameMapError {
     fn source(&self) -> Option<&(dyn error::Error + 'static)> {
         match *self {
