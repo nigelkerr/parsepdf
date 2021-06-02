@@ -35,10 +35,10 @@ fn process_file(possible_file: String) -> Result<(), PdfError> {
 
         for obj_num in pdffile.master_xref_table().all_numbers() {
             match pdffile.master_xref_table().get(obj_num) {
-                Some(XrefTableEntry2::Free { number, generation }) => {
+                Some(XrefTableEntry::Free { number, generation }) => {
                     println!("object num {} {} free\n", number, generation);
                 }
-                Some(XrefTableEntry2::Uncompressed {
+                Some(XrefTableEntry::Uncompressed {
                     number,
                     generation,
                     offset,
@@ -57,7 +57,7 @@ fn process_file(possible_file: String) -> Result<(), PdfError> {
                         return Err(PdfError::Nom);
                     }
                 },
-                Some(XrefTableEntry2::InStream {
+                Some(XrefTableEntry::InStream {
                     number,
                     in_object_number,
                     index_in_stream,

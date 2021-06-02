@@ -1,7 +1,7 @@
 extern crate kmpsearch;
 
 use crate::parser::PdfObject;
-use crate::parser::XrefTable2;
+use crate::parser::XrefTable;
 use crate::{
     recognize_pdf_cross_reference, recognize_pdf_startxref, recognize_pdf_version, NameMap,
     PdfVersion,
@@ -45,8 +45,8 @@ pub struct PdfFile {
     // how many bytes does the PDF itself possibly take up?
     trailers: Vec<NameMap>,
     xref_offsets: Vec<u64>,
-    xref_tables: Vec<XrefTable2>,
-    master_xref_table: XrefTable2,
+    xref_tables: Vec<XrefTable>,
+    master_xref_table: XrefTable,
 }
 
 impl Default for PdfFile {
@@ -64,21 +64,21 @@ impl PdfFile {
             trailers: Vec::new(),
             xref_offsets: Vec::new(),
             xref_tables: Vec::new(),
-            master_xref_table: XrefTable2::new(),
+            master_xref_table: XrefTable::new(),
         }
     }
 
     pub fn populate_master_xref_table(&mut self) -> Result<(), PdfError> {
         for xt in self.xref_tables.iter() {
             for xref_entry in xt.all_entries().iter() {
-                self.master_xref_table.add(xref_entry.clone());
+                self.master_xref_table.add(*xref_entry);
             }
         }
 
         Ok(())
     }
 
-    pub fn master_xref_table(&self) -> &XrefTable2 {
+    pub fn master_xref_table(&self) -> &XrefTable {
         &self.master_xref_table
     }
 }
@@ -87,10 +87,7 @@ impl PdfFile {
 /// be the PDF header is. pdfs are allowed to not be at the very start of the bytestream,
 /// which is rather a shame (§ 7.5.2 Note 1)
 fn locate_start_offset(i: &[u8]) -> Option<u64> {
-    match i.first_indexof_needle("%PDF-") {
-        Some(index) => Some(index as u64),
-        None => None,
-    }
+    i.first_indexof_needle("%PDF-").map(|index| index as u64)
 }
 
 fn offset_of_latest_xref(i: &[u8]) -> Result<u64, PdfError> {
