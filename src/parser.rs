@@ -10,8 +10,31 @@ use std::error;
 use std::fmt;
 use std::str;
 use std::str::FromStr;
-//use crate::validate_xref_stream_dictionary;
-//use crate::XRefStream;
+
+quick_error! {
+    #[derive(Debug)]
+    pub enum PdfError {
+        /// IO Error
+        Io(err: std::io::Error) {
+            from()
+        }
+        NotAFile {}
+        NotAPdfOrNeedsFrontTrimming {}
+        VeryShort {}
+        NotARecognizedPdfVersion {}
+        /// something up with the trailer
+        TrailerNotFound {}
+        TrailerPuzzlingStructure {}
+        Nom {}
+        PdfParsing {}
+        NotImplementedYet {}
+        StartXrefAttemptedInfiniteLoop {}
+        StartXrefAttemptedNonsensicalValue {}
+        TrailerPrevNotAnOffset {}
+        FoundNoXrefStream {}
+        FoundNoXref {}
+    }
+}
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum PdfVersion {
@@ -1057,8 +1080,10 @@ fn recognize_name_hex_encoded_byte(i: &[u8]) -> IResult<&[u8], Vec<u8>> {
 }
 
 fn is_possible_in_name_unencoded(chr: u8) -> bool {
-    chr != b'#' && !is_pdf_whitespace(chr) && !is_pdf_delimiter(chr) && ((b'!'..=b'~').
-        contains(&chr))
+    chr != b'#'
+        && !is_pdf_whitespace(chr)
+        && !is_pdf_delimiter(chr)
+        && ((b'!'..=b'~').contains(&chr))
 }
 
 fn recognize_name_unencoded_byte(i: &[u8]) -> IResult<&[u8], Vec<u8>> {
@@ -1512,69 +1537,54 @@ fn recognize_old_style_cross_reference(i: &[u8]) -> IResult<&[u8], (XrefTable, P
     ))(i)
 }
 
-// we will not reflect to the caller that we actually have an indirect stream
-// object here, and maybe that's okay for purposes.  we can also access it as
-// a normal indirect object (probably once we've decoded this stream and made
-// an xref table...).
-//fn recognize_xref_stream_cross_reference(i: &[u8]) -> IResult<&[u8], (XrefTable, PdfObject)> {
-//    match context("recognize_xref_stream_cross_reference", recognize_pdf_indirect_object, )(i) {
-//        Ok((rest, PdfIndirectObject { number: number, generation: generation, obj: PdfObject::Stream(name_map, data) })) => {
-//
-//
-//            let xref_semantics: XRefStream = validate_xref_stream_dictionary(&name_map)?;
-//
-////            let size: u32 = name_map.get2(b"Size".as_bytes())
-////
-////            // think about this /W and contents as a test case for validation patterns ugh
-////            if !name_map.contains_key2(b"W".as_bytes()) {
-////                return Err(nom::Err::Error((i, nom::error::ErrorKind::TooLarge)));
-////            }
-////            let mut w_params: Vec<i64> = Vec::new();
-////            match name_map.get2(b"W".as_bytes()) {
-////                Some(PdfObject::Array(vec_of_three_integers)) => {
-////                    if vec_of_three_integers.len() != 3 {
-////                        return Err(nom::Err::Error((i, nom::error::ErrorKind::TooLarge)));
-////                    }
-////                    for item in vec_of_three_integers.iter() {
-////                        match item {
-////                            PdfObject::Integer(integer) => { w_params.push(*integer); }
-////                            _ => { return Err(nom::Err::Error((i, nom::error::ErrorKind::TooLarge))); }
-////                        }
-////                    }
-////                }
-////                _ => {
-////                    return Err(nom::Err::Error((i, nom::error::ErrorKind::TooLarge)));
-////                }
-////            }
-//
-//            // because the relevant values in this map are required to be direct,
-//            // we dont need to fiddle with this map.
-//            let decoded_data = crate::filters::decode(&data, &name_map);
-//            // now /W tells us what to do with these bytes
-//
-////            if decoded_data.len()
-//
-//        }
-//        Ok((_rest, unexpected)) => {
-//            println!("expected indirect stream object, got {:#?} instead", unexpected);
-//            // TODO compose errors better ugh
-//            Err(nom::Err::Error((i, nom::error::ErrorKind::TooLarge)))
-//        }
-//        Err(err) => { Err(err) }
-//    }
-//}
+// just recognize that structurally we have one.
+// figure out what it means up in semantics.
+
+fn recognize_xref_stream_cross_reference(i: &[u8]) -> Result<(&[u8], PdfObject), PdfError> {
+    match context(
+        "recognize_xref_stream_cross_reference",
+        recognize_pdf_indirect_object,
+    )(i)
+    {
+        Ok((
+            rest,
+            PdfIndirectObject {
+                number: number,
+                generation: generation,
+                obj: PdfObject::Stream(name_map, data),
+            },
+        )) => {
+            if name_map.contains_key(PdfObject::Name(b"Type".to_vec())) {
+                if let PdfObject::Name(ref name_value) = name_map.get2(b"Type").unwrap() {
+                    if name_value.eq(b"XRef") {
+                        return Ok((rest, PdfObject::Stream(name_map, data)));
+                    }
+                }
+            }
+        }
+        _ => {}
+    }
+    Err(PdfError::FoundNoXrefStream)
+}
 
 /// Given that we are started at an offset that a startxref
 /// refers to, recognize either the old_style or xrefstm style
 /// cross-reference and trailer together.
-pub fn recognize_pdf_cross_reference(i: &[u8]) -> IResult<&[u8], (XrefTable, PdfObject)> {
-    context(
-        "recognize_pdf_cross_reference",
-        //            alt((
-        recognize_old_style_cross_reference,
-        //        recognize_xref_stream_cross_reference,
-        //    ))
-    )(i)
+pub fn recognize_pdf_cross_reference(
+    i: &[u8],
+) -> Result<(&[u8], (Option<XrefTable>, PdfObject)), PdfError> {
+    match recognize_old_style_cross_reference(i) {
+        Ok((_rest, (xref_table, object))) => {
+            return Ok((_rest, (Some(xref_table), object)));
+        }
+        Err(err) => match recognize_xref_stream_cross_reference(i) {
+            Ok((_rest, xref_stream_object)) => {
+                return Ok((_rest, (None, xref_stream_object)));
+            }
+            _ => {}
+        },
+    }
+    Err(PdfError::FoundNoXref)
 }
 
 pub fn recognize_pdf_startxref(i: &[u8]) -> IResult<&[u8], u64> {

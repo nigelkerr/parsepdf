@@ -2,35 +2,13 @@ extern crate kmpsearch;
 
 use crate::parser::PdfObject;
 use crate::parser::XrefTable;
+use crate::PdfError;
 use crate::{
     recognize_pdf_cross_reference, recognize_pdf_startxref, recognize_pdf_version, NameMap,
     PdfVersion,
 };
 use kmpsearch::Haystack;
 use nom::AsBytes;
-
-quick_error! {
-    #[derive(Debug)]
-    pub enum PdfError {
-        /// IO Error
-        Io(err: std::io::Error) {
-            from()
-        }
-        NotAFile {}
-        NotAPdfOrNeedsFrontTrimming {}
-        VeryShort {}
-        NotARecognizedPdfVersion {}
-        /// something up with the trailer
-        TrailerNotFound {}
-        TrailerPuzzlingStructure {}
-        Nom {}
-        PdfParsing {}
-        NotImplementedYet {}
-        StartXrefAttemptedInfiniteLoop {}
-        StartXrefAttemptedNonsensicalValue {}
-        TrailerPrevNotAnOffset {}
-    }
-}
 
 /// State of understanding of the organization of data and constructs inside
 /// some PDF file.  This struct does not own the PDF file representation itself,
@@ -138,7 +116,7 @@ pub fn parse_pdf(i: &[u8], file_len: u64) -> Result<PdfFile, PdfError> {
     // try to march backwards through the file.
     loop {
         match recognize_pdf_cross_reference(&input[next_xref as usize..]) {
-            Ok((_rest, (xr, PdfObject::Dictionary(trailer_map)))) => {
+            Ok((_rest, (Some(xr), PdfObject::Dictionary(trailer_map)))) => {
                 pdf_file.xref_offsets.push(next_xref);
                 pdf_file.xref_tables.push(xr);
 
@@ -170,8 +148,8 @@ pub fn parse_pdf(i: &[u8], file_len: u64) -> Result<PdfFile, PdfError> {
                     }
                 }
             }
-            Err(_err) => {
-                return Err(PdfError::TrailerPuzzlingStructure);
+            Ok((_rest, (None, PdfObject::Stream(trailer_map, data)))) => {
+                return Err(PdfError::NotImplementedYet);
             }
             _ => {
                 return Err(PdfError::TrailerPuzzlingStructure);

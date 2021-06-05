@@ -14,6 +14,7 @@ extern crate quick_error2;
 mod files;
 mod filters;
 mod parser;
+mod semantics;
 
 pub use crate::files::*;
 pub use crate::filters::*;

@@ -10,8 +10,7 @@ Combinators are not used at the level of PDF file structure, where the validatio
 and the length and interpretation of streams are of paramount importance.  The object structure needs
 to be valid, but the values conveyed must be validated and checked among each other.
 
-It is evident that a way to have facts learned about the contents of the PDF need to be compared to
-statements the PDF makes, and a structure outside the PDF objects itself is needed
+We need to be able to compare what a PDF claims with what is learned about the PDF independently.
 
 # 2021-06-02
 
